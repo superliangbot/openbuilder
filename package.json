@@ -1,6 +1,6 @@
 {
   "name": "openbuilder",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Open-source AI meeting assistant — join Google Meet, capture transcripts, generate AI-powered meeting reports with summaries, action items, and speaker analytics",
   "type": "module",
   "bin": {

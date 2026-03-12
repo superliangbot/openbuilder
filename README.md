@@ -5,8 +5,9 @@
 Get meeting summaries, action items, key decisions, and speaker analytics — all from your terminal.
 
 <p align="center">
-  <img src="docs/demo-telegram.jpg" alt="OpenBuilder joining a Google Meet via Telegram" width="420">
-  <img src="docs/demo-telegram-2.jpg" alt="OpenBuilder taking screenshots and summarizing meetings in real time" width="420">
+  <img src="docs/demo-telegram.jpg" alt="OpenBuilder joining a Google Meet via Telegram" width="280">
+  <img src="docs/demo-telegram-2.jpg" alt="OpenBuilder taking screenshots and summarizing meetings in real time" width="280">
+  <img src="docs/demo-report.jpg" alt="AI meeting report with summary, chapters, action items, and speaker analytics" width="280">
 </p>
 
 ## Features
