@@ -379,6 +379,16 @@ async function main(): Promise<void> {
     case "sync":
       await cmdSync(subArgs);
       break;
+    case "poll": {
+      // Delegate to the poll script
+      const { execSync: execSyncPoll } = await import("node:child_process");
+      const pollArgs = subArgs.join(" ");
+      execSyncPoll(`npx tsx ${new URL("./builder-readai-poll.ts", import.meta.url).pathname} ${pollArgs}`, {
+        stdio: "inherit",
+        cwd: process.cwd(),
+      });
+      break;
+    }
     default:
       console.error(`Unknown readai command: ${subcommand}\n`);
       printHelp();

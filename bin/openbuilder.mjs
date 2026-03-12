@@ -37,6 +37,9 @@ Usage:
   npx openbuilder readai meeting <id>                Get full meeting data
   npx openbuilder readai live <id>                   Get live meeting data
   npx openbuilder readai sync                        Pull latest meeting & report
+  npx openbuilder readai poll                        Check for new meetings (cron)
+  npx openbuilder readai poll --daemon               Auto-poll continuously
+  npx openbuilder readai poll --interval 15          Poll every N minutes
   npx openbuilder config [set|get|delete] [...]     Manage configuration
   npx openbuilder help                              Show this help
 
