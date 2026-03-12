@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "OpenBuilder — Meeting Intelligence",
+  "version": "0.1.0",
+  "description": "Capture meeting captions and audio from Google Meet. Generate AI-powered meeting reports.",
+  "permissions": [
+    "activeTab",
+    "tabCapture",
+    "storage",
+    "scripting",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "*://meet.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
