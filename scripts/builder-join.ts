@@ -529,6 +529,32 @@ async function waitForMeetingEnd(
       return "Navigated away from meeting";
     }
 
+    // Detect if redirected to Meet homepage (meeting ended and Google kicked us out)
+    const currentUrl = page.url();
+    if (
+      currentUrl === "https://meet.google.com/" ||
+      currentUrl === "https://meet.google.com" ||
+      currentUrl.match(/^https:\/\/meet\.google\.com\/?\?/) ||
+      currentUrl === "https://meet.google.com/landing"
+    ) {
+      return "Meeting ended (redirected to homepage)";
+    }
+
+    // Check if the Leave call button is gone (meeting UI disappeared)
+    try {
+      const leaveBtn = page.locator('[aria-label*="Leave call" i]').first();
+      const hasMeetingUI = await leaveBtn.isVisible({ timeout: 500 });
+      if (!hasMeetingUI) {
+        // Double-check: no meeting controls means we're not in a meeting
+        const hasAnyControls = await page.locator('[aria-label*="microphone" i], [aria-label*="camera" i]').first().isVisible({ timeout: 500 }).catch(() => false);
+        if (!hasAnyControls) {
+          return "Meeting ended (meeting UI gone)";
+        }
+      }
+    } catch {
+      // Couldn't check — continue
+    }
+
     // Check if all other participants have left
     const participantCount = await getParticipantCount(page);
 
