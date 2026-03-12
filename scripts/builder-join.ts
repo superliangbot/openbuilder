@@ -1248,7 +1248,9 @@ export async function joinMeeting(opts: {
       console.warn(`  Blocked: "You can't join this video call" (attempt ${attempt})`);
 
       if (attempt < MAX_JOIN_RETRIES) {
-        console.log("  Retrying with fresh incognito browser context...");
+        const waitSec = attempt * 15; // 15s, 30s between retries
+        console.log(`  Waiting ${waitSec}s before retrying with fresh browser context...`);
+        await currentPage.waitForTimeout(waitSec * 1000);
         await currentContext.close();
 
         const browser = await pw.chromium.launch({
@@ -1321,7 +1323,9 @@ export async function joinMeeting(opts: {
     }
 
     if (attempt < MAX_JOIN_RETRIES) {
-      console.log(`  Retrying with fresh context... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
+      const waitSec = attempt * 15;
+      console.log(`  Waiting ${waitSec}s before retrying... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
+      await new Promise(r => setTimeout(r, waitSec * 1000));
       await currentContext.close();
 
       const browser = await pw.chromium.launch({
