@@ -370,25 +370,47 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
       // Keep waiting
     }
 
-    const isBlocked = await page
+    // Check if we're in the "asking to be let in" lobby state — this is GOOD, keep waiting
+    const isInLobby = await page
       .evaluate(() => {
         const text = document.body.innerText || "";
         return (
-          /you can.t join this video call/i.test(text) ||
-          /return(ing)? to home screen/i.test(text) ||
-          /you have been removed/i.test(text) ||
-          /denied your request/i.test(text) ||
-          /meeting has been locked/i.test(text) ||
-          /cannot join/i.test(text)
+          /asking to be let in/i.test(text) ||
+          /waiting for someone to let you in/i.test(text) ||
+          /someone in the meeting/i.test(text) ||
+          /the meeting host/i.test(text)
         );
       })
       .catch(() => false);
 
-    if (isBlocked) {
-      throw new Error("Blocked from joining — access denied or meeting unavailable");
+    if (isInLobby) {
+      // We're in the lobby — this is expected, keep waiting for admission
+      await page.waitForTimeout(3000);
+      continue;
     }
 
-    await page.waitForTimeout(2000);
+    // Only check for hard blocks after waiting at least 15 seconds
+    // (to avoid false positives from page transitions)
+    if (Date.now() - start > 15000) {
+      const isBlocked = await page
+        .evaluate(() => {
+          const text = document.body.innerText || "";
+          return (
+            /you can.t join this video call/i.test(text) ||
+            /return(ing)? to home screen/i.test(text) ||
+            /you have been removed/i.test(text) ||
+            /denied your request/i.test(text) ||
+            /meeting has been locked/i.test(text)
+          );
+        })
+        .catch(() => false);
+
+      if (isBlocked) {
+        throw new Error("Blocked from joining — access denied or meeting unavailable");
+      }
+    }
+
+    await page.waitForTimeout(3000);
   }
 
   throw new Error("Timed out waiting to be admitted (10 minutes)");
