@@ -1176,8 +1176,7 @@ export async function joinMeeting(opts: {
     "--no-default-browser-check",
     "--disable-sync",
     "--use-fake-ui-for-media-stream",
-    // Only use fake device when NOT capturing real audio from the browser
-    ...(useAudioCapture ? [] : ["--use-fake-device-for-media-stream"]),
+    "--use-fake-device-for-media-stream",
     "--auto-select-desktop-capture-source=Entire screen",
     "--disable-dev-shm-usage",
     "--window-size=1280,720",
