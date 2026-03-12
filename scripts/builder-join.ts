@@ -433,6 +433,48 @@ async function clickLeaveButton(page: Page): Promise<void> {
   }
 }
 
+/** Check how many participants are in the meeting (excluding the bot) */
+async function getParticipantCount(page: Page): Promise<number> {
+  try {
+    return await page.evaluate(() => {
+      // Method 1: Check the participant count badge/text in the toolbar
+      // Google Meet shows participant count near the people icon
+      const countEl = document.querySelector('[data-participant-count]');
+      if (countEl) {
+        const count = parseInt(countEl.getAttribute('data-participant-count') || '0', 10);
+        return count;
+      }
+
+      // Method 2: Look for "X in call" or participant count text
+      const allText = document.body.innerText || '';
+
+      // "You're the only one here" means just the bot
+      if (/you.re the only one here/i.test(allText)) return 1;
+
+      // Look for participant count patterns
+      const countMatch = allText.match(/(\d+)\s+(?:in call|participant|people|in this call)/i);
+      if (countMatch) return parseInt(countMatch[1], 10);
+
+      // Method 3: Count video tiles / participant elements
+      // Google Meet uses specific containers for each participant
+      const tiles = document.querySelectorAll(
+        '[data-participant-id], [data-requested-participant-id]'
+      );
+      if (tiles.length > 0) return tiles.length;
+
+      // Method 4: Count elements in the participant list if open
+      const participantItems = document.querySelectorAll(
+        '[role="listitem"][data-participant-id]'
+      );
+      if (participantItems.length > 0) return participantItems.length;
+
+      return -1; // Unknown
+    });
+  } catch {
+    return -1; // Error — can't determine
+  }
+}
+
 async function waitForMeetingEnd(
   page: Page,
   opts?: {
@@ -445,6 +487,11 @@ async function waitForMeetingEnd(
   const durationMs = opts?.durationMs;
   const captionIdleTimeoutMs = opts?.captionIdleTimeoutMs;
   const getLastCaptionAt = opts?.getLastCaptionAt;
+
+  // Track when we first detected being alone (to avoid premature exit)
+  let aloneDetectedAt: number | null = null;
+  const ALONE_GRACE_PERIOD_MS = 15_000; // Wait 15s to confirm everyone left
+  let lastParticipantLog = 0;
 
   const checkEnded = async (): Promise<string | null> => {
     try {
@@ -463,6 +510,34 @@ async function waitForMeetingEnd(
     if (!page.url().includes("meet.google.com")) {
       return "Navigated away from meeting";
     }
+
+    // Check if all other participants have left
+    const participantCount = await getParticipantCount(page);
+
+    // Log participant count periodically (every 30s)
+    if (Date.now() - lastParticipantLog > 30_000 && participantCount >= 0) {
+      console.log(`  [participants] ${participantCount} in meeting`);
+      lastParticipantLog = Date.now();
+    }
+
+    if (participantCount === 1) {
+      // Only the bot is left
+      if (!aloneDetectedAt) {
+        aloneDetectedAt = Date.now();
+        console.log("  All other participants left — waiting 15s to confirm...");
+      } else if (Date.now() - aloneDetectedAt >= ALONE_GRACE_PERIOD_MS) {
+        // Confirmed alone for 15 seconds — meeting is over
+        await clickLeaveButton(page);
+        return "All other participants left";
+      }
+    } else if (participantCount > 1) {
+      // Someone is still here — reset the alone timer
+      if (aloneDetectedAt) {
+        console.log("  Participant rejoined — continuing...");
+        aloneDetectedAt = null;
+      }
+    }
+    // participantCount === -1 means unknown, don't act on it
 
     return null;
   };
