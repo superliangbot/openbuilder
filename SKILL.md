@@ -261,6 +261,72 @@ When the bot reports the meeting has ended:
 
 **NEVER read or analyze screenshot images to understand meeting content.**
 
+## Read AI Integration (No Bot Needed)
+
+OpenBuilder can pull meeting data directly from **Read AI** without joining the meeting.
+Read AI captures meeting content natively via Chrome extension or Google Workspace add-on —
+no bot needs to join the call. The agent can access transcripts, summaries, action items,
+and analytics from any past or live meeting the user has recorded with Read AI.
+
+### Setup
+
+Run the OAuth flow once to connect the user's Read AI account:
+
+```bash
+exec command:"npx openbuilder readai auth"
+```
+
+This opens a browser for the user to authorize OpenBuilder. Tokens are saved to
+`~/.openbuilder/readai-auth.json` (separate from Google auth).
+
+### List Meetings
+
+```bash
+exec command:"npx openbuilder readai meetings"
+exec command:"npx openbuilder readai meetings --limit 5 --start-date 2025-01-01"
+```
+
+### Get Meeting Details
+
+```bash
+exec command:"npx openbuilder readai meeting <meeting-id>"
+```
+
+Returns summary, chapters, action items, questions, topics, transcript, and metrics.
+
+### Get Live Meeting Data
+
+```bash
+exec command:"npx openbuilder readai live <meeting-id>"
+```
+
+Returns real-time transcript and chapter summaries for an in-progress meeting.
+
+### Sync Latest Meeting
+
+```bash
+exec command:"npx openbuilder readai sync"
+```
+
+Pulls the latest meeting from Read AI, saves the transcript in OpenBuilder format
+(to `~/.openclaw/workspace/openbuilder/transcripts/`), and generates a markdown report
+(to `~/.openclaw/workspace/openbuilder/reports/`). Outputs `[OPENBUILDER_REPORT]` marker.
+
+### When to Use Read AI vs. the Meeting Bot
+
+| Scenario                                      | Use this                          |
+|-----------------------------------------------|-----------------------------------|
+| User has Read AI and wants past meeting data   | `openbuilder readai meeting <id>` |
+| User has Read AI and meeting is live           | `openbuilder readai live <id>`    |
+| User wants to pull latest meeting + report     | `openbuilder readai sync`         |
+| User does NOT have Read AI / needs bot to join | `openbuilder join <url>`          |
+
+### Files
+
+- `~/.openbuilder/readai-auth.json` — Read AI OAuth tokens (separate from Google auth)
+- `~/.openclaw/workspace/openbuilder/transcripts/readai-*.txt` — Synced transcripts
+- `~/.openclaw/workspace/openbuilder/reports/readai-*-report.md` — Generated reports
+
 ## Headless VM Tips
 
 - Chrome flags `--use-fake-ui-for-media-stream` and `--use-fake-device-for-media-stream` are set automatically.

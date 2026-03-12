@@ -32,6 +32,11 @@ Usage:
   npx openbuilder screenshot                        Request on-demand screenshot
   npx openbuilder summarize [transcript-path]       AI summary of a transcript
   npx openbuilder report [transcript-path]          Full AI meeting report
+  npx openbuilder readai auth                        Authorize with Read AI
+  npx openbuilder readai meetings                    List Read AI meetings
+  npx openbuilder readai meeting <id>                Get full meeting data
+  npx openbuilder readai live <id>                   Get live meeting data
+  npx openbuilder readai sync                        Pull latest meeting & report
   npx openbuilder config [set|get|delete] [...]     Manage configuration
   npx openbuilder help                              Show this help
 
@@ -275,6 +280,8 @@ if (!command || command === "install") {
   runScript("builder-report.ts", rawArgs.slice(1));
 } else if (command === "config") {
   runScript("builder-config.ts", rawArgs.slice(1));
+} else if (command === "readai") {
+  runScript("builder-readai.ts", rawArgs.slice(1));
 } else if (command === "help" || command === "--help" || command === "-h") {
   printHelp();
 } else {
