@@ -1,0 +1,54 @@
+{
+  "name": "openbuilder",
+  "version": "0.1.0",
+  "description": "Open-source AI meeting assistant — join Google Meet, capture transcripts, generate AI-powered meeting reports with summaries, action items, and speaker analytics",
+  "type": "module",
+  "bin": {
+    "openbuilder": "bin/openbuilder.mjs"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "src",
+    "SKILL.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superliangbot/openbuilder.git"
+  },
+  "homepage": "https://github.com/superliangbot/openbuilder",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "playwright-core": "^1.58.2",
+    "tsx": "^4.21.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0",
+    "openai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "meeting",
+    "assistant",
+    "ai",
+    "google-meet",
+    "transcript",
+    "summary",
+    "action-items",
+    "meeting-notes",
+    "openclaw"
+  ]
+}
