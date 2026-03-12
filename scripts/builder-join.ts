@@ -1359,11 +1359,16 @@ export async function joinMeeting(opts: {
     let fullChromePath: string | undefined;
     if (useFullChrome) {
       try {
-        const result = execSync(
-          'find ~/.cache/ms-playwright/chromium-*/chrome-linux64 -name "chrome" -type f | head -1',
-          { encoding: "utf-8" },
-        ).trim();
-        fullChromePath = result || undefined;
+        const playwrightCache = join(homedir(), ".cache", "ms-playwright");
+        if (existsSync(playwrightCache)) {
+          const result = execSync(
+            process.platform === "darwin"
+              ? `find "${playwrightCache}" -path "*/Chromium.app/Contents/MacOS/Chromium" -type f 2>/dev/null | head -1`
+              : `find "${playwrightCache}" -path "*/chrome-linux*/chrome" -type f 2>/dev/null | head -1`,
+            { encoding: "utf-8" },
+          ).trim();
+          fullChromePath = result || undefined;
+        }
       } catch { /* fallback to default */ }
     }
     if (useFullChrome && fullChromePath) {
@@ -1394,8 +1399,12 @@ export async function joinMeeting(opts: {
     const fullChromePath = useFullChrome
       ? (() => {
           try {
+            const playwrightCache = join(homedir(), ".cache", "ms-playwright");
+            if (!existsSync(playwrightCache)) return undefined;
             const result = execSync(
-              'find ~/.cache/ms-playwright/chromium-*/chrome-linux64 -name "chrome" -type f | head -1',
+              process.platform === "darwin"
+                ? `find "${playwrightCache}" -path "*/Chromium.app/Contents/MacOS/Chromium" -type f 2>/dev/null | head -1`
+                : `find "${playwrightCache}" -path "*/chrome-linux*/chrome" -type f 2>/dev/null | head -1`,
               { encoding: "utf-8" },
             ).trim();
             return result || undefined;

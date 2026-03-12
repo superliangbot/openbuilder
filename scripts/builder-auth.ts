@@ -9,7 +9,9 @@
  * Saves session to ~/.openbuilder/auth.json via Playwright's storageState.
  */
 
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { config as dotenvConfig } from "dotenv";
 import { join, dirname } from "node:path";
@@ -163,15 +165,22 @@ async function main() {
     "--window-size=1280,720",
   ];
 
-  // Find full Chrome for headed mode
+  // Find full Chrome for headed mode (cross-platform)
   let executablePath: string | undefined;
-  const fullChromePath = join(
-    process.env.HOME || "~",
-    ".cache/ms-playwright/chromium-1208/chrome-linux64/chrome"
-  );
-  if (existsSync(fullChromePath)) {
-    executablePath = fullChromePath;
-  }
+  try {
+    const playwrightCache = join(homedir(), ".cache", "ms-playwright");
+    if (existsSync(playwrightCache)) {
+      const result = execSync(
+        process.platform === "darwin"
+          ? `find "${playwrightCache}" -path "*/Chromium.app/Contents/MacOS/Chromium" -type f 2>/dev/null | head -1`
+          : `find "${playwrightCache}" -path "*/chrome-linux*/chrome" -type f 2>/dev/null | head -1`,
+        { encoding: "utf-8" },
+      ).trim();
+      if (result && existsSync(result)) {
+        executablePath = result;
+      }
+    }
+  } catch { /* fallback to default */ }
 
   const browser = await pw.chromium.launch({
     headless,

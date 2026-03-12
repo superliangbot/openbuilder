@@ -293,6 +293,36 @@ To set up OpenBuilder as an automated meeting bot (e.g. for OpenClaw agents):
 - Caption mode (`--captions`) is the most reliable on headless servers
 - Audio mode (`--audio`) requires PulseAudio + ffmpeg + OpenAI key + Xvfb (experimental on servers)
 
+## Running on Your Own Hardware
+
+OpenBuilder works on any machine running OpenClaw — Mac Mini, laptop, Raspberry Pi, VPS, etc.
+
+### macOS (Mac Mini, MacBook)
+- `npx openbuilder` installs Chromium automatically
+- Audio capture mode is not available (no PulseAudio) — captions mode works great
+- Auth: `npx openbuilder auth` opens a browser window — sign in and press Enter
+- For headless operation: use `--auto` auth with `.env` credentials
+
+### Linux (Ubuntu, Debian, etc.)
+- May need system deps: `npx playwright-core install-deps chromium`
+- For headless servers: ensure Xvfb is running (`Xvfb :99 -screen 0 1280x720x24 &`)
+- Audio mode available if PulseAudio + ffmpeg are installed
+
+### What you need
+1. **Node.js 18+**
+2. **OpenClaw** running on the machine
+3. **A Google account** for the bot (or join as guest)
+4. **An AI API key** (Claude or OpenAI) for meeting reports
+
+### Quick setup (any platform)
+```bash
+npx openbuilder                           # Install + Chromium
+npx openbuilder auth                      # Sign into Google (one-time)
+npx openbuilder config set anthropicApiKey sk-ant-...  # For AI reports
+```
+
+Then tell your OpenClaw agent: "Join this meeting: \<url\>"
+
 ## OpenClaw Integration
 
 OpenBuilder ships as an OpenClaw skill. After running `npx openbuilder`, it's available to your OpenClaw agent. The agent can:
