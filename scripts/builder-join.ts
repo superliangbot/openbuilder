@@ -290,7 +290,7 @@ async function enterNameIfNeeded(page: Page, botName: string): Promise<void> {
   }
 }
 
-async function clickJoinButton(page: Page, maxAttempts = 6): Promise<boolean> {
+async function clickJoinButton(page: Page, maxAttempts = 10): Promise<boolean> {
   const joinSelectors = [
     'button:has-text("Continue without microphone and camera")',
     'button:has-text("Ask to join")',
@@ -302,18 +302,21 @@ async function clickJoinButton(page: Page, maxAttempts = 6): Promise<boolean> {
   ];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const isBlocked = await page
-      .evaluate(() => {
-        const text = document.body.innerText || "";
-        return (
-          /you can.t join this video call/i.test(text) || /return(ing)? to home screen/i.test(text)
-        );
-      })
-      .catch(() => false);
+    // Only check for blocks after giving the page time to load (not on first 2 attempts)
+    if (attempt >= 2) {
+      const isBlocked = await page
+        .evaluate(() => {
+          const text = document.body.innerText || "";
+          return (
+            /you can.t join this video call/i.test(text) || /return(ing)? to home screen/i.test(text)
+          );
+        })
+        .catch(() => false);
 
-    if (isBlocked) {
-      console.log("  Detected 'can't join' — aborting join attempt");
-      return false;
+      if (isBlocked) {
+        console.log("  Detected 'can't join' — aborting join attempt");
+        return false;
+      }
     }
 
     for (const selector of joinSelectors) {
@@ -1394,21 +1397,16 @@ export async function joinMeeting(opts: {
       );
     }
 
-    // First attempt: check for immediate "can't join" and retry once with reload
+    // First attempt: wait longer before checking for blocks (let page fully load)
     if (attempt === 1) {
-      const earlyBlockCheck = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), 5000);
-        isBlockedFromJoining(currentPage).then((blocked) => {
-          clearTimeout(timer);
-          resolve(blocked);
-        });
-      });
+      await currentPage.waitForTimeout(5000); // Extra 5s for page to settle
+      const earlyBlockCheck = await isBlockedFromJoining(currentPage).catch(() => false);
 
       if (earlyBlockCheck) {
-        console.log("  Detected early 'can't join' (stale page) - waiting 10s and reloading...");
-        await currentPage.waitForTimeout(10000);
+        console.log("  Page shows 'can't join' — waiting 15s and reloading...");
+        await currentPage.waitForTimeout(15000);
         await currentPage.reload({ waitUntil: "domcontentloaded" });
-        await currentPage.waitForTimeout(3000);
+        await currentPage.waitForTimeout(5000);
         await dismissOverlays(currentPage);
       }
     }
