@@ -4,6 +4,10 @@
 
 Get meeting summaries, action items, key decisions, and speaker analytics — all from your terminal.
 
+<p align="center">
+  <img src="docs/demo-telegram.jpg" alt="OpenBuilder in action — Telegram bot joining a Google Meet, taking screenshots, and reporting on the meeting in real time" width="500">
+</p>
+
 ## Features
 
 - **Audio Capture + Whisper** — Captures browser audio via PulseAudio virtual sink, transcribes with OpenAI Whisper (no captions needed)
