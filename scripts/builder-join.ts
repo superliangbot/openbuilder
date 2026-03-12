@@ -522,14 +522,14 @@ function extractMeetingId(meetUrl: string): string {
 async function enableCaptions(page: Page): Promise<void> {
   await page.waitForTimeout(5000);
 
-  // Dismiss overlays (RecallAI pattern: press Escape multiple times)
-  for (let i = 0; i < 8; i++) {
+  // Dismiss overlays aggressively (RecallAI pattern: press Escape many times)
+  for (let i = 0; i < 10; i++) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(1000);
 
-  for (const text of ["Got it", "Dismiss", "Continue"]) {
+  for (const text of ["Got it", "Dismiss", "Continue", "OK", "No thanks"]) {
     try {
       const btn = page.locator(`button:has-text("${text}")`).first();
       if (await btn.isVisible({ timeout: 500 })) {
@@ -547,7 +547,8 @@ async function enableCaptions(page: Page): Promise<void> {
       !!(document.querySelector('[role="region"][aria-label*="Captions"]') ||
          document.querySelector('[aria-label="Captions are on"]') ||
          document.querySelector('button[aria-label*="Turn off captions" i]') ||
-         document.querySelector('[data-is-persistent-caption="true"]'))
+         document.querySelector('[data-is-persistent-caption="true"]') ||
+         document.querySelector('[jscontroller][data-caption-id]'))
     `)
       .catch(() => false) as Promise<boolean>;
 
@@ -556,75 +557,127 @@ async function enableCaptions(page: Page): Promise<void> {
     return;
   }
 
-  // Method 1: Click CC button
-  try {
-    await page.mouse.move(640, 680);
-    await page.waitForTimeout(1000);
+  // Debug: take screenshot before attempting caption enable
+  const debugPath = join(OPENBUILDER_WORKSPACE_DIR, "debug-captions.png");
+  await page.screenshot({ path: debugPath }).catch(() => {});
+  console.log(`  [DEBUG] Pre-caption screenshot saved`);
 
-    const ccButton = page
-      .locator(
-        'button[aria-label*="Turn on captions" i], ' +
-          'button[aria-label*="captions" i][aria-pressed="false"], ' +
-          'button[aria-label*="captions (c)" i]',
-      )
-      .first();
-    if (await ccButton.isVisible({ timeout: 3000 })) {
-      await ccButton.click();
-      await page.waitForTimeout(2000);
-      if (await checkCaptions()) {
-        console.log("  Captions enabled (clicked CC button)");
-        return;
+  // Method 1: Move mouse across bottom toolbar area to reveal it, then click CC
+  // Try multiple Y positions since toolbar position varies by viewport
+  for (const y of [680, 700, 650, 720, 600]) {
+    try {
+      await page.mouse.move(640, y);
+      await page.waitForTimeout(1500);
+
+      const ccButton = page
+        .locator(
+          'button[aria-label*="Turn on captions" i], ' +
+            'button[aria-label*="captions" i][aria-pressed="false"], ' +
+            'button[aria-label*="captions (c)" i], ' +
+            'button[aria-label*="closed captions" i]',
+        )
+        .first();
+      if (await ccButton.isVisible({ timeout: 2000 })) {
+        await ccButton.click();
+        await page.waitForTimeout(2000);
+        if (await checkCaptions()) {
+          console.log("  Captions enabled (clicked CC button)");
+          return;
+        }
       }
+    } catch {
+      // Try next position
     }
-  } catch {
-    // Try keyboard shortcuts
   }
 
-  // Method 2: Press 'c'
+  // Method 2: Keyboard shortcut 'c' — click body first to ensure focus
+  try {
+    await page.click("body");
+    await page.waitForTimeout(500);
+  } catch {}
+
   await page.keyboard.press("c");
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(3000);
   if (await checkCaptions()) {
     console.log("  Captions enabled (pressed 'c')");
     return;
   }
 
-  // Method 3: Shift+C multiple times
-  for (let i = 0; i < 10; i++) {
-    await page.keyboard.press("Shift+c");
-    await page.waitForTimeout(1000);
+  // Method 3: Try pressing 'c' multiple times with focus resets
+  for (let i = 0; i < 5; i++) {
+    try { await page.click("body"); } catch {}
+    await page.waitForTimeout(300);
+    await page.keyboard.press("c");
+    await page.waitForTimeout(2000);
     if (await checkCaptions()) {
-      console.log(`  Captions enabled (Shift+C, attempt ${i + 1})`);
+      console.log(`  Captions enabled (press 'c', attempt ${i + 1})`);
       return;
     }
   }
 
-  // Method 4: More options menu
+  // Method 4: Use JavaScript to find and click the CC button by scanning all buttons
+  try {
+    const clicked = await page.evaluate(() => {
+      const buttons = document.querySelectorAll("button");
+      for (const btn of buttons) {
+        const label = (btn.getAttribute("aria-label") || "").toLowerCase();
+        if (label.includes("caption") && !label.includes("turn off")) {
+          (btn as HTMLElement).click();
+          return label;
+        }
+      }
+      // Try finding by the closed_caption icon
+      const icons = document.querySelectorAll('[data-icon*="caption"]');
+      for (const icon of icons) {
+        const btn = icon.closest("button");
+        if (btn) {
+          (btn as HTMLElement).click();
+          return "icon-based click";
+        }
+      }
+      return null;
+    });
+    if (clicked) {
+      console.log(`  Clicked caption button via JS: ${clicked}`);
+      await page.waitForTimeout(3000);
+      if (await checkCaptions()) {
+        console.log("  Captions enabled (JS click)");
+        return;
+      }
+    }
+  } catch {}
+
+  // Method 5: More options / activities menu
   try {
     const moreBtn = page
-      .locator('button[aria-label*="more options" i], button[aria-label*="More actions" i]')
+      .locator(
+        'button[aria-label*="more options" i], button[aria-label*="More actions" i], ' +
+          'button[aria-label*="activities" i]',
+      )
       .first();
     if (await moreBtn.isVisible({ timeout: 2000 })) {
       await moreBtn.click();
-      await page.waitForTimeout(1000);
-      const captionsMenuItem = page
-        .locator('li:has-text("Captions"), [role="menuitem"]:has-text("Captions")')
+      await page.waitForTimeout(1500);
+      const captionsItem = page
+        .locator(
+          '[role="menuitem"]:has-text("Captions"), li:has-text("Captions"), ' +
+            '[role="option"]:has-text("Captions")',
+        )
         .first();
-      if (await captionsMenuItem.isVisible({ timeout: 2000 })) {
-        await captionsMenuItem.click();
+      if (await captionsItem.isVisible({ timeout: 2000 })) {
+        await captionsItem.click();
         await page.waitForTimeout(2000);
         if (await checkCaptions()) {
-          console.log("  Captions enabled (via More Options menu)");
+          console.log("  Captions enabled (via menu)");
           return;
         }
       } else {
         await page.keyboard.press("Escape");
       }
     }
-  } catch {
-    // Menu approach failed
-  }
+  } catch {}
 
-  // Method 5: CC icon
+  // Method 6: CC icon by data-icon attribute
   try {
     await page.mouse.move(640, 680);
     await page.waitForTimeout(500);
@@ -641,11 +694,24 @@ async function enableCaptions(page: Page): Promise<void> {
         return;
       }
     }
-  } catch {
-    // Not found
-  }
+  } catch {}
 
-  console.log("  WARNING: Could not verify captions are on — capture may not work");
+  // Last resort: dump all visible button labels for debugging
+  await page.screenshot({ path: debugPath }).catch(() => {});
+  const allButtons = await page
+    .evaluate(() => {
+      return Array.from(document.querySelectorAll("button"))
+        .map((b) => ({
+          label: b.getAttribute("aria-label"),
+          text: (b.textContent || "").slice(0, 60),
+          visible: b.offsetParent !== null,
+        }))
+        .filter((b) => b.visible);
+    })
+    .catch(() => []);
+  console.log("  [DEBUG] All visible buttons:", JSON.stringify(allButtons));
+  console.log("  WARNING: Could not verify captions are on — caption capture may not work");
+  console.log(`  [DEBUG] Screenshot: ${debugPath}`);
 }
 
 // Caption observer injected into the browser context
