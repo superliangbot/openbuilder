@@ -293,35 +293,68 @@ To set up OpenBuilder as an automated meeting bot (e.g. for OpenClaw agents):
 - Caption mode (`--captions`) is the most reliable on headless servers
 - Audio mode (`--audio`) requires PulseAudio + ffmpeg + OpenAI key + Xvfb (experimental on servers)
 
-## Running on Your Own Hardware
+## Platform Compatibility
 
-OpenBuilder works on any machine running OpenClaw — Mac Mini, laptop, Raspberry Pi, VPS, etc.
+OpenBuilder works anywhere OpenClaw runs, as long as Playwright Chromium is available.
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **macOS** (Mac Mini, MacBook — Intel & Apple Silicon) | ✅ Tested | Chromium installs automatically. Captions mode works great. No PulseAudio needed. |
+| **Linux x64** (Ubuntu, Debian, VPS, EC2) | ✅ Tested | May need system deps: `npx playwright-core install-deps chromium`. Headless servers need Xvfb. |
+| **Windows** (via WSL2) | ✅ Should work | Same as Linux x64. Not yet tested — feedback welcome. |
+| **Docker / Podman** | ✅ Should work | Run `npx playwright-core install-deps chromium` in container. Not yet tested. |
+| **Raspberry Pi** (ARM64, Pi 4/5) | ⚠️ Not tested | Playwright Chromium ARM builds can be unreliable. May need manual Chromium install. |
+| **Raspberry Pi 3** (ARMv7) | ❌ Not supported | Playwright does not ship ARMv7 Chromium. |
 
 ### macOS (Mac Mini, MacBook)
+
 - `npx openbuilder` installs Chromium automatically
-- Audio capture mode is not available (no PulseAudio) — captions mode works great
+- Audio capture mode is not available (no PulseAudio) — captions mode is the default and works great
 - Auth: `npx openbuilder auth` opens a browser window — sign in and press Enter
-- For headless operation: use `--auto` auth with `.env` credentials
+- For headless/unattended operation: use `--auto` auth with `.env` credentials
 
-### Linux (Ubuntu, Debian, etc.)
-- May need system deps: `npx playwright-core install-deps chromium`
-- For headless servers: ensure Xvfb is running (`Xvfb :99 -screen 0 1280x720x24 &`)
-- Audio mode available if PulseAudio + ffmpeg are installed
+### Linux (Ubuntu, Debian, VPS, EC2)
 
-### What you need
+- Install system dependencies: `npx playwright-core install-deps chromium`
+- For headless servers (no display): start Xvfb first — `Xvfb :99 -screen 0 1280x720x24 &` and `export DISPLAY=:99`
+- Audio capture mode available if PulseAudio + ffmpeg are installed (optional — captions mode works without them)
+
+### VPS Providers
+
+Works on any VPS that runs OpenClaw:
+
+- **AWS** (EC2, Lightsail) — tested ✅
+- **Oracle Cloud** (Always Free tier) — should work
+- **Hetzner**, **Fly.io**, **GCP**, **Railway**, **Render** — should work (Linux x64)
+- **DigitalOcean** — should work
+
+Minimum: 1 vCPU, 1GB RAM (Chromium is the main resource consumer).
+
+### Requirements
+
 1. **Node.js 18+**
 2. **OpenClaw** running on the machine
-3. **A Google account** for the bot (or join as guest)
-4. **An AI API key** (Claude or OpenAI) for meeting reports
+3. **A Google account** for the bot (or join as guest with `--anon`)
+4. **An AI API key** — Claude (Anthropic) or OpenAI — for meeting reports (optional but recommended)
 
-### Quick setup (any platform)
+### Quick Setup (any platform)
+
 ```bash
-npx openbuilder                           # Install + Chromium
+npx openbuilder                           # Install skill + Chromium
 npx openbuilder auth                      # Sign into Google (one-time)
 npx openbuilder config set anthropicApiKey sk-ant-...  # For AI reports
 ```
 
-Then tell your OpenClaw agent: "Join this meeting: \<url\>"
+Then tell your OpenClaw agent: "Join this meeting: https://meet.google.com/..."
+
+### Known Limitations
+
+- **Google Meet only** — Zoom and Teams support planned for a future release
+- **Captions depend on Google Meet's CC feature** — if Meet changes their DOM structure, caption scraping may break
+- **Audio capture mode is experimental** on headless servers — PulseAudio routing can be unreliable. Use `--captions` for reliability
+- **Bot appears as a participant** — other meeting participants will see "Super Liang" (or your bot's Google account name) in the People panel
+- **Google may block automated logins** — if Google flags the bot account, re-run `npx openbuilder auth` interactively or from a different IP
+- **One meeting at a time** per bot instance
 
 ## OpenClaw Integration
 
@@ -329,8 +362,9 @@ OpenBuilder ships as an OpenClaw skill. After running `npx openbuilder`, it's av
 
 - Join meetings on your behalf
 - Capture and summarize transcripts
-- Generate full meeting reports
-- Send screenshots to your chat
+- Generate full meeting reports with action items and decisions
+- Send screenshots to your chat on demand
+- Tell you what's being discussed in real time
 
 See [SKILL.md](./SKILL.md) for the full agent integration guide.
 
