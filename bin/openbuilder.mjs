@@ -40,13 +40,18 @@ Join options:
   --anon          Join as a guest (requires --bot-name)
   --bot-name      Guest display name (required with --anon)
   --duration      Auto-leave after duration (e.g. 30m, 1h)
+  --audio         Force audio capture mode (PulseAudio + Whisper)
+  --captions      Force caption scraping mode (DOM-based fallback)
   --headed        Show browser window for debugging
   --camera        Join with camera on (default: off)
   --mic           Join with microphone on (default: off)
   --no-report     Skip auto-report generation after meeting ends
-  --verbose       Show real-time caption output
+  --verbose       Show real-time transcript output
   --channel       OpenClaw channel for sending status messages
   --target        OpenClaw target for sending status messages
+
+  By default, capture mode is "auto": uses audio capture if PulseAudio,
+  ffmpeg, and OPENAI_API_KEY are available, otherwise falls back to captions.
 
 Config:
   openbuilder config                    Show all settings
@@ -54,16 +59,20 @@ Config:
   openbuilder config get <key>          Get a value
   openbuilder config delete <key>       Remove a value
 
-  Keys: aiProvider, anthropicApiKey, openaiApiKey, botName, defaultDuration
+  Keys: aiProvider, anthropicApiKey, openaiApiKey, botName, defaultDuration,
+        captureMode, whisperModel
   Env:  OPENBUILDER_AI_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY,
-        OPENBUILDER_BOT_NAME, OPENBUILDER_DEFAULT_DURATION
+        OPENBUILDER_BOT_NAME, OPENBUILDER_DEFAULT_DURATION,
+        OPENBUILDER_CAPTURE_MODE, OPENBUILDER_WHISPER_MODEL
 
 Examples:
   npx openbuilder join https://meet.google.com/abc-defg-hij --anon --bot-name "Meeting Bot"
   npx openbuilder join https://meet.google.com/abc-defg-hij --auth --duration 60m
+  npx openbuilder join https://meet.google.com/abc-defg-hij --auth --audio
   npx openbuilder summarize ~/transcript.txt
   npx openbuilder report ~/transcript.txt
-  npx openbuilder config set anthropicApiKey sk-ant-...`);
+  npx openbuilder config set openaiApiKey sk-...
+  npx openbuilder config set captureMode audio`);
 }
 
 function resolveInstallTarget(rawArgs) {

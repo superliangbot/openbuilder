@@ -6,7 +6,9 @@ Get meeting summaries, action items, key decisions, and speaker analytics — al
 
 ## Features
 
-- **Google Meet Bot** — Headless Chromium bot joins meetings, captures live captions via MutationObserver
+- **Audio Capture + Whisper** — Captures browser audio via PulseAudio virtual sink, transcribes with OpenAI Whisper (no captions needed)
+- **Caption Scraping Fallback** — DOM-based caption capture for systems without PulseAudio/ffmpeg
+- **Google Meet Bot** — Headless Chromium bot joins meetings automatically
 - **AI Meeting Reports** — Post-meeting analysis with summaries, chapters, action items, decisions, and questions
 - **Speaker Analytics** — Talk time, word count, and participation percentages per speaker
 - **Multiple AI Providers** — Claude (Anthropic) and OpenAI supported; bring your own API key
@@ -87,12 +89,16 @@ npx openbuilder report
 --anon          Join as a guest (requires --bot-name)
 --bot-name      Guest display name
 --duration      Auto-leave after duration (30m, 1h, etc.)
+--audio         Force audio capture mode (PulseAudio + Whisper)
+--captions      Force caption scraping mode (DOM-based fallback)
 --headed        Show browser window (debugging)
 --camera        Join with camera on (default: off)
 --mic           Join with microphone on (default: off)
 --no-report     Skip auto-report after meeting ends
---verbose       Show real-time caption output
+--verbose       Show real-time transcript output
 ```
+
+By default, capture mode is `auto`: uses audio capture if PulseAudio, ffmpeg, and `OPENAI_API_KEY` are all available. Otherwise falls back to caption scraping.
 
 ## AI Meeting Reports
 
@@ -150,6 +156,8 @@ npx openbuilder config set anthropicApiKey sk-ant-...
 npx openbuilder config set openaiApiKey sk-...
 npx openbuilder config set botName "My Meeting Bot"
 npx openbuilder config set defaultDuration 60m
+npx openbuilder config set captureMode audio
+npx openbuilder config set whisperModel whisper-1
 
 # Get a value
 npx openbuilder config get aiProvider
@@ -166,9 +174,11 @@ Environment variables override config file values:
 |----------|-----------|-------------|
 | `OPENBUILDER_AI_PROVIDER` | `aiProvider` | `claude` or `openai` |
 | `ANTHROPIC_API_KEY` | `anthropicApiKey` | Anthropic API key |
-| `OPENAI_API_KEY` | `openaiApiKey` | OpenAI API key |
+| `OPENAI_API_KEY` | `openaiApiKey` | OpenAI API key (also used for Whisper) |
 | `OPENBUILDER_BOT_NAME` | `botName` | Default bot name |
 | `OPENBUILDER_DEFAULT_DURATION` | `defaultDuration` | Default meeting duration |
+| `OPENBUILDER_CAPTURE_MODE` | `captureMode` | `audio`, `captions`, or `auto` (default) |
+| `OPENBUILDER_WHISPER_MODEL` | `whisperModel` | Whisper model name (default `whisper-1`) |
 
 ## Authentication
 
@@ -218,11 +228,13 @@ npx openbuilder report ~/meetings/standup-2026-03-12.txt
 
 1. **Join**: Launches headless Chromium with stealth patches (navigator.webdriver, WebGL, plugins), navigates to the Meet URL, enters the bot name, disables camera/mic, and clicks join.
 
-2. **Caption Capture**: Enables Google Meet's built-in live captions, then injects a MutationObserver that watches for caption DOM mutations. Speaker names are extracted from `.NWpY1d` / `.xoMHSc` badge elements. Captions are deduplicated (Meet updates word-by-word) and written to disk with timestamps.
+2. **Transcript Capture** (two modes):
+   - **Audio mode** (default when available): Creates a PulseAudio virtual sink, routes all browser audio to it, captures audio with ffmpeg into 30-second WAV chunks, and transcribes each chunk with OpenAI Whisper. No captions needed — works like Read AI / Granola.
+   - **Caption mode** (fallback): Enables Google Meet's built-in live captions, then injects a MutationObserver that watches for caption DOM mutations. Speaker names are extracted from badge elements. Captions are deduplicated and written to disk with timestamps.
 
 3. **AI Analysis**: When the meeting ends, the transcript is sent to Claude or OpenAI with carefully designed prompts. Long transcripts are chunked and merged. The AI extracts summaries, chapters, action items (with assignee detection), key decisions, and key questions.
 
-4. **Speaker Analytics**: Talk time is estimated from caption timestamps and speaking rate heuristics. Per-speaker word counts and participation percentages are calculated.
+4. **Speaker Analytics**: Talk time is estimated from transcript timestamps and speaking rate heuristics. Per-speaker word counts and participation percentages are calculated.
 
 ## Requirements
 
@@ -231,8 +243,18 @@ npx openbuilder report ~/meetings/standup-2026-03-12.txt
 - **Optional**: `@anthropic-ai/sdk` or `openai` npm package for AI features
   ```bash
   npm install @anthropic-ai/sdk  # For Claude
-  npm install openai              # For OpenAI
+  npm install openai              # For OpenAI (also required for audio capture mode)
   ```
+
+### Audio Capture Mode (recommended)
+
+For audio capture via PulseAudio + Whisper, you also need:
+
+- **PulseAudio** — `apt install pulseaudio` (most Linux desktops have this already)
+- **ffmpeg** — `apt install ffmpeg`
+- **OpenAI API key** — for Whisper transcription (`OPENAI_API_KEY` env var or config)
+
+If these aren't available, OpenBuilder automatically falls back to caption scraping.
 
 ## OpenClaw Integration
 
