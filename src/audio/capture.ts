@@ -93,8 +93,92 @@ function removeSink(moduleIndex: string): void {
   }
 }
 
+/** Create a PulseAudio pipe sink and return the module index and pipe path */
+function createPipeSink(sinkName: string): { moduleIndex: string; pipePath: string } {
+  const pipePath = `/tmp/${sinkName}-audio-pipe`;
+  
+  try {
+    // Create FIFO pipe
+    execSync(`mkfifo ${pipePath}`, { timeout: 5000 });
+    
+    // Load module-pipe-sink
+    const result = execSync(
+      `pactl load-module module-pipe-sink file=${pipePath} sink_name=${sinkName} format=s16le rate=16000 channels=1 sink_properties=device.description=OpenBuilderPipeSink`,
+      { encoding: "utf-8", timeout: 5000 },
+    ).trim();
+    
+    // Set as default sink
+    execSync(`pactl set-default-sink ${sinkName}`, { timeout: 5000 });
+    
+    return { moduleIndex: result, pipePath };
+  } catch (err) {
+    // Clean up pipe if it was created
+    try {
+      unlinkSync(pipePath);
+    } catch {}
+    throw new Error(
+      `Failed to create PulseAudio pipe sink "${sinkName}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** Test if pipe-sink approach works by playing a test sound and checking if data flows */
+async function testPipeSink(pipePath: string, sampleRate = 16000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(false);
+      }
+    }, 10000); // 10 second timeout
+
+    // Spawn ffmpeg to read from pipe - it should receive data if pipe works
+    const ffmpeg = spawn("ffmpeg", [
+      "-f", "s16le",
+      "-ar", String(sampleRate),
+      "-ac", "1",
+      "-i", pipePath,
+      "-t", "2", // Only capture for 2 seconds
+      "-f", "null",
+      "-"
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+
+    // Generate test audio in background
+    setTimeout(() => {
+      try {
+        execSync(`pactl play-sample bell`, { timeout: 3000, stdio: "ignore" });
+      } catch {
+        // Try alternative test sound
+        try {
+          execSync(`speaker-test -t sine -f 440 -l 1 -s 1 2>/dev/null`, { timeout: 3000, stdio: "ignore" });
+        } catch {
+          // No test sound available, but ffmpeg might still detect silence vs no pipe
+        }
+      }
+    }, 1000);
+
+    ffmpeg.on("exit", (code) => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        // If ffmpeg exits normally (even if no audio), pipe is working
+        resolve(code !== null);
+      }
+    });
+
+    ffmpeg.on("error", () => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        resolve(false);
+      }
+    });
+  });
+}
+
 /**
- * Start audio capture from a PulseAudio sink monitor.
+ * Start audio capture from PulseAudio using pipe-sink approach with null-sink fallback.
  *
  * ffmpeg writes segmented WAV files (chunk_000.wav, chunk_001.wav, ...)
  * of `chunkDurationSec` seconds each.
@@ -113,36 +197,88 @@ export function startAudioCapture(options: AudioCaptureOptions): AudioCapture {
     throw new Error(`Missing audio dependencies: ${deps.missing.join(", ")}`);
   }
 
-  // Start PulseAudio and create sink
+  // Start PulseAudio
   ensurePulseAudio();
-  const moduleIndex = createSink(sinkName);
-  console.log(`  PulseAudio sink created: ${sinkName} (module ${moduleIndex})`);
 
   // Create output directory
   const outputDir = providedDir ?? join(tmpdir(), `openbuilder-audio-${sinkName}-${Date.now()}`);
   mkdirSync(outputDir, { recursive: true });
 
-  // Start ffmpeg capturing from the sink monitor
-  // Uses segment muxer to write consecutive WAV chunks
-  const monitorSource = `${sinkName}.monitor`;
-  const chunkPattern = join(outputDir, "chunk_%03d.wav");
+  let moduleIndex: string;
+  let pipePath: string | null = null;
+  let ffmpeg: ChildProcess;
+  let audioMethod: "pipe-sink" | "null-sink";
 
-  const ffmpeg: ChildProcess = spawn(
-    "ffmpeg",
-    [
-      "-f", "pulse",
-      "-i", monitorSource,
-      "-ac", "1",
-      "-ar", String(sampleRate),
-      "-f", "segment",
-      "-segment_time", String(chunkDurationSec),
-      "-reset_timestamps", "1",
-      chunkPattern,
-    ],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  // Try pipe-sink approach first
+  try {
+    const pipeResult = createPipeSink(sinkName);
+    moduleIndex = pipeResult.moduleIndex;
+    pipePath = pipeResult.pipePath;
+    
+    console.log(`  PulseAudio pipe-sink created: ${sinkName} (module ${moduleIndex})`);
+    
+    // Start ffmpeg reading from the pipe
+    const chunkPattern = join(outputDir, "chunk_%03d.wav");
+    ffmpeg = spawn(
+      "ffmpeg",
+      [
+        "-f", "s16le",
+        "-ar", String(sampleRate),
+        "-ac", "1",
+        "-i", pipePath,
+        "-f", "segment",
+        "-segment_time", String(chunkDurationSec),
+        "-reset_timestamps", "1",
+        chunkPattern,
+      ],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    
+    audioMethod = "pipe-sink";
+    console.log(`  Using pipe-sink method with ffmpeg reading from ${pipePath}`);
+    
+  } catch (pipeErr) {
+    console.log(`  Pipe-sink failed: ${pipeErr instanceof Error ? pipeErr.message : String(pipeErr)}`);
+    console.log(`  Falling back to null-sink method...`);
+    
+    try {
+      // Fallback to null-sink approach (original method)
+      moduleIndex = createSink(sinkName);
+      pipePath = null;
+      console.log(`  PulseAudio null-sink created: ${sinkName} (module ${moduleIndex})`);
+
+      // Start ffmpeg capturing from the sink monitor
+      const monitorSource = `${sinkName}.monitor`;
+      const chunkPattern = join(outputDir, "chunk_%03d.wav");
+
+      ffmpeg = spawn(
+        "ffmpeg",
+        [
+          "-f", "pulse",
+          "-i", monitorSource,
+          "-ac", "1",
+          "-ar", String(sampleRate),
+          "-f", "segment",
+          "-segment_time", String(chunkDurationSec),
+          "-reset_timestamps", "1",
+          chunkPattern,
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      
+      audioMethod = "null-sink";
+      console.log(`  Using null-sink method with PulseAudio monitor ${monitorSource}`);
+      
+    } catch (nullErr) {
+      throw new Error(
+        `Both pipe-sink and null-sink methods failed. Pipe: ${pipeErr instanceof Error ? pipeErr.message : String(pipeErr)}. Null: ${nullErr instanceof Error ? nullErr.message : String(nullErr)}`,
+      );
+    }
+  }
 
   let ffmpegRunning = true;
 
@@ -201,6 +337,16 @@ export function startAudioCapture(options: AudioCaptureOptions): AudioCapture {
     }
 
     removeSink(moduleIndex);
+    
+    // Clean up pipe file if using pipe-sink
+    if (pipePath) {
+      try {
+        unlinkSync(pipePath);
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+    
     ffmpegRunning = false;
   };
 
@@ -215,7 +361,7 @@ export function startAudioCapture(options: AudioCaptureOptions): AudioCapture {
   };
 
   console.log(`  ffmpeg capturing audio → ${outputDir}`);
-  console.log(`  Chunk duration: ${chunkDurationSec}s, Sample rate: ${sampleRate}Hz`);
+  console.log(`  Method: ${audioMethod}, Chunk duration: ${chunkDurationSec}s, Sample rate: ${sampleRate}Hz`);
 
   return {
     sinkName,

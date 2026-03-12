@@ -346,6 +346,7 @@ async function clickJoinButton(page: Page, maxAttempts = 6): Promise<boolean> {
 async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void> {
   console.log("  Waiting to be admitted to the meeting (up to 10 min)...");
   const start = Date.now();
+  let nextBlockCheck = Date.now() + 30_000; // First block check after 30 seconds
 
   while (Date.now() - start < timeoutMs) {
     try {
@@ -385,13 +386,12 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
 
     if (isInLobby) {
       // We're in the lobby — this is expected, keep waiting for admission
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(5000);
       continue;
     }
 
-    // Only check for hard blocks after waiting at least 15 seconds
-    // (to avoid false positives from page transitions)
-    if (Date.now() - start > 15000) {
+    // Only check for hard blocks every 30 seconds (not every 2-3 seconds)
+    if (Date.now() >= nextBlockCheck) {
       const isBlocked = await page
         .evaluate(() => {
           const text = document.body.innerText || "";
@@ -408,9 +408,12 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
       if (isBlocked) {
         throw new Error("Blocked from joining — access denied or meeting unavailable");
       }
+
+      nextBlockCheck = Date.now() + 30_000; // Next check in 30 seconds
     }
 
-    await page.waitForTimeout(3000);
+    // Wait longer between checks to be patient
+    await page.waitForTimeout(5000);
   }
 
   throw new Error("Timed out waiting to be admitted (10 minutes)");
@@ -1230,12 +1233,12 @@ export async function joinMeeting(opts: {
 
   await context.addInitScript(STEALTH_SCRIPT);
 
-  const MAX_JOIN_RETRIES = 3;
+  const MAX_JOIN_RETRIES = 2;
   let currentContext = context;
   let currentPage = page;
   let joined = false;
 
-  sendMessage({ channel, target, message: `Trying to join the meeting (up to 3 attempts)...` });
+  sendMessage({ channel, target, message: `Trying to join the meeting (up to 2 attempts)...` });
 
   for (let attempt = 1; attempt <= MAX_JOIN_RETRIES; attempt++) {
     console.log(`\nNavigating to meeting... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
@@ -1244,28 +1247,14 @@ export async function joinMeeting(opts: {
 
     await dismissOverlays(currentPage);
 
-    if (await isBlockedFromJoining(currentPage)) {
+    // Only check for blocks on retry attempts (not first attempt)
+    if (attempt > 1 && await isBlockedFromJoining(currentPage)) {
       console.warn(`  Blocked: "You can't join this video call" (attempt ${attempt})`);
 
       if (attempt < MAX_JOIN_RETRIES) {
-        const waitSec = attempt * 15; // 15s, 30s between retries
-        console.log(`  Waiting ${waitSec}s before retrying with fresh browser context...`);
-        await currentPage.waitForTimeout(waitSec * 1000);
-        await currentContext.close();
-
-        const browser = await pw.chromium.launch({
-          headless: !headed,
-          args: chromiumArgs,
-          ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
-        });
-        currentContext = await browser.newContext({
-          viewport: { width: 1280, height: 720 },
-          permissions: ["camera", "microphone"],
-          userAgent:
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        });
-        await currentContext.addInitScript(STEALTH_SCRIPT);
-        currentPage = await currentContext.newPage();
+        console.log(`  Waiting 60s before retrying...`);
+        await currentPage.waitForTimeout(60 * 1000);
+        // Just reload the page, don't create fresh context
         continue;
       }
 
@@ -1282,6 +1271,25 @@ export async function joinMeeting(opts: {
       throw new Error(
         `Blocked from joining after ${MAX_JOIN_RETRIES} attempts. Debug screenshot: ${screenshotPath}`,
       );
+    }
+
+    // First attempt: check for immediate "can't join" and retry once with reload
+    if (attempt === 1) {
+      const earlyBlockCheck = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 5000);
+        isBlockedFromJoining(currentPage).then((blocked) => {
+          clearTimeout(timer);
+          resolve(blocked);
+        });
+      });
+
+      if (earlyBlockCheck) {
+        console.log("  Detected early 'can't join' (stale page) - waiting 10s and reloading...");
+        await currentPage.waitForTimeout(10000);
+        await currentPage.reload({ waitUntil: "domcontentloaded" });
+        await currentPage.waitForTimeout(3000);
+        await dismissOverlays(currentPage);
+      }
     }
 
     await enterNameIfNeeded(currentPage, botName);
@@ -1323,24 +1331,9 @@ export async function joinMeeting(opts: {
     }
 
     if (attempt < MAX_JOIN_RETRIES) {
-      const waitSec = attempt * 15;
-      console.log(`  Waiting ${waitSec}s before retrying... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
-      await new Promise(r => setTimeout(r, waitSec * 1000));
-      await currentContext.close();
-
-      const browser = await pw.chromium.launch({
-        headless: !headed,
-        args: chromiumArgs,
-        ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
-      });
-      currentContext = await browser.newContext({
-        viewport: { width: 1280, height: 720 },
-        permissions: ["camera", "microphone"],
-        userAgent:
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      });
-      await currentContext.addInitScript(STEALTH_SCRIPT);
-      currentPage = await currentContext.newPage();
+      console.log(`  Waiting 60s before retrying...`);
+      await new Promise(r => setTimeout(r, 60 * 1000));
+      // Just reload the page, don't create fresh context to avoid bot detection
     }
   }
 
