@@ -349,7 +349,7 @@ async function clickJoinButton(page: Page, maxAttempts = 10): Promise<boolean> {
 async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void> {
   console.log("  Waiting to be admitted to the meeting (up to 10 min)...");
   const start = Date.now();
-  let nextBlockCheck = Date.now() + 30_000; // First block check after 30 seconds
+  let nextBlockCheck = Date.now() + 120_000; // First block check after 2 MINUTES (give host time to admit)
 
   while (Date.now() - start < timeoutMs) {
     try {
@@ -412,7 +412,7 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
         throw new Error("Blocked from joining — access denied or meeting unavailable");
       }
 
-      nextBlockCheck = Date.now() + 30_000; // Next check in 30 seconds
+      nextBlockCheck = Date.now() + 60_000; // Next check in 60 seconds
     }
 
     // Wait longer between checks to be patient
