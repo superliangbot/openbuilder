@@ -41,6 +41,8 @@ type BrowserContext = import("playwright-core").BrowserContext;
 
 // ── Send image/message to user's chat via openclaw ──────────────────────
 
+import { exec as execAsync } from "node:child_process";
+
 function sendImage(opts: {
   channel?: string;
   target?: string;
@@ -49,8 +51,6 @@ function sendImage(opts: {
 }): void {
   if (opts.channel && opts.target) {
     try {
-      // Fire-and-forget (async) to avoid blocking the meeting loop
-      const { exec: execAsync } = require("node:child_process");
       execAsync(
         `openclaw message send --channel ${opts.channel} --target ${JSON.stringify(opts.target)} --message ${JSON.stringify(opts.message)} --media ${JSON.stringify(opts.mediaPath)}`,
         { timeout: 30_000 },
@@ -65,8 +65,6 @@ function sendImage(opts: {
 function sendMessage(opts: { channel?: string; target?: string; message: string }): void {
   if (opts.channel && opts.target) {
     try {
-      // Fire-and-forget (async) to avoid blocking the meeting loop
-      const { exec: execAsync } = require("node:child_process");
       execAsync(
         `openclaw message send --channel ${opts.channel} --target ${JSON.stringify(opts.target)} --message ${JSON.stringify(opts.message)}`,
         { timeout: 30_000 },
@@ -358,29 +356,8 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
   let nextBlockCheck = Date.now() + 120_000; // First block check after 2 MINUTES (give host time to admit)
 
   while (Date.now() - start < timeoutMs) {
-    try {
-      const endCallBtn = page
-        .locator('[aria-label*="Leave call" i], [aria-label*="leave" i][data-tooltip*="Leave"]')
-        .first();
-      if (await endCallBtn.isVisible({ timeout: 2000 })) {
-        return;
-      }
-    } catch {
-      // Not visible yet
-    }
-
-    try {
-      const inMeetingText = page
-        .locator("text=/only one here/i, text=/you.ve been admitted/i")
-        .first();
-      if (await inMeetingText.isVisible({ timeout: 1000 })) {
-        return;
-      }
-    } catch {
-      // Keep waiting
-    }
-
-    // Check if we're in the "asking to be let in" lobby state — this is GOOD, keep waiting
+    // FIRST: check if we're still in the lobby — must check this before anything else
+    // The lobby also has a "Leave call" button, so we can't use that as an in-meeting signal
     const isInLobby = await page
       .evaluate(() => {
         const text = document.body.innerText || "";
@@ -388,7 +365,9 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
           /asking to be let in/i.test(text) ||
           /waiting for someone to let you in/i.test(text) ||
           /someone in the meeting/i.test(text) ||
-          /the meeting host/i.test(text)
+          /the meeting host/i.test(text) ||
+          /please wait until/i.test(text) ||
+          /meeting host brings you/i.test(text)
         );
       })
       .catch(() => false);
@@ -397,6 +376,33 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
       // We're in the lobby — this is expected, keep waiting for admission
       await page.waitForTimeout(5000);
       continue;
+    }
+
+    // Now check if we're actually in the meeting (not lobby)
+    // Look for meeting-specific elements that only appear when admitted
+    try {
+      const inMeeting = await page.evaluate(() => {
+        const text = document.body.innerText || "";
+        // "You're the only one here" = admitted but alone
+        if (/you.re the only one here/i.test(text)) return true;
+        if (/you.ve been admitted/i.test(text)) return true;
+        // Check for participant video tiles (only in actual meeting, not lobby)
+        const tiles = document.querySelectorAll('[data-participant-id], [data-self-name]');
+        if (tiles.length > 0) return true;
+        // Check for caption button or "More options" menu (in-meeting toolbar)
+        const captionBtn = document.querySelector('[aria-label*="captions" i], [aria-label*="Turn on captions" i]');
+        if (captionBtn) return true;
+        // Check for the meeting info / people button (only in actual meeting)
+        const peopleBtn = document.querySelector('[aria-label*="Show everyone" i], [aria-label*="people" i]');
+        if (peopleBtn) return true;
+        return false;
+      });
+      if (inMeeting) {
+        console.log("  Confirmed: admitted to the meeting");
+        return;
+      }
+    } catch {
+      // Keep waiting
     }
 
     // Only check for hard blocks every 30 seconds (not every 2-3 seconds)
