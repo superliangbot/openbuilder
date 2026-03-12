@@ -1140,9 +1140,17 @@ export async function joinMeeting(opts: {
   const meetingId = extractMeetingId(meetUrl);
   const audioSinkName = `openbuilder_${meetingId.replace(/[^a-z0-9_-]/gi, "_")}`;
 
-  // If using audio capture, set PULSE_SINK before browser launch
+  // If using audio capture, set up PulseAudio routing before browser launch
   if (useAudioCapture) {
     process.env.PULSE_SINK = audioSinkName;
+    // Also set PULSE_SERVER so Chromium finds PulseAudio
+    if (!process.env.PULSE_SERVER) {
+      const { execSync } = await import("node:child_process");
+      try {
+        const serverInfo = execSync("pactl info 2>/dev/null | grep 'Server String' | cut -d: -f2-", { encoding: "utf-8" }).trim();
+        if (serverInfo) process.env.PULSE_SERVER = serverInfo;
+      } catch {}
+    }
   }
 
   console.log(`OpenBuilder — Joining meeting: ${meetUrl}`);
@@ -1178,6 +1186,7 @@ export async function joinMeeting(opts: {
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
     "--auto-select-desktop-capture-source=Entire screen",
+    "--autoplay-policy=no-user-gesture-required",
     "--disable-dev-shm-usage",
     "--window-size=1280,720",
   ];
@@ -1194,7 +1203,7 @@ export async function joinMeeting(opts: {
     const browser = await pw.chromium.launch({
       headless: !headed,
       args: chromiumArgs,
-      ignoreDefaultArgs: ["--enable-automation"],
+      ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
     });
     context = await browser.newContext({
       storageState: AUTH_FILE,
@@ -1210,7 +1219,7 @@ export async function joinMeeting(opts: {
     context = await pw.chromium.launchPersistentContext(userDataDir, {
       headless: true,
       args: chromiumArgs,
-      ignoreDefaultArgs: ["--enable-automation"],
+      ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
       viewport: { width: 1280, height: 720 },
       permissions: ["camera", "microphone"],
       userAgent:
@@ -1245,7 +1254,7 @@ export async function joinMeeting(opts: {
         const browser = await pw.chromium.launch({
           headless: !headed,
           args: chromiumArgs,
-          ignoreDefaultArgs: ["--enable-automation"],
+          ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
         });
         currentContext = await browser.newContext({
           viewport: { width: 1280, height: 720 },
@@ -1318,7 +1327,7 @@ export async function joinMeeting(opts: {
       const browser = await pw.chromium.launch({
         headless: !headed,
         args: chromiumArgs,
-        ignoreDefaultArgs: ["--enable-automation"],
+        ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
       });
       currentContext = await browser.newContext({
         viewport: { width: 1280, height: 720 },
