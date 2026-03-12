@@ -929,9 +929,32 @@ async function setupCaptionCapture(
       normPrev &&
       (normNew === normPrev ||
         normPrev.startsWith(normNew) ||
-        (normNew.startsWith(normPrev) && normNew.length - normPrev.length < 5))
+        (normNew.startsWith(normPrev) && normNew.length - normPrev.length < 3))
     ) {
       return;
+    }
+
+    // Extract only the NEW text (deduplicate the accumulating Google Meet CC buffer)
+    let textToWrite = text;
+    if (prevWritten && text.startsWith(prevWritten)) {
+      // The caption buffer is growing — only write the new part
+      textToWrite = text.slice(prevWritten.length).replace(/^[\s,.!?;:]+/, "").trim();
+      if (!textToWrite) return;
+    } else if (prevWritten) {
+      // Try normalized comparison for fuzzy prefix matching
+      const prevWords = normPrev.split(/\s+/);
+      const newWords = normNew.split(/\s+/);
+      // Find the longest common prefix by words
+      let commonLen = 0;
+      for (let i = 0; i < Math.min(prevWords.length, newWords.length); i++) {
+        if (prevWords[i] === newWords[i]) commonLen = i + 1;
+        else break;
+      }
+      if (commonLen > 0 && commonLen >= prevWords.length * 0.8) {
+        // Most of the previous text is a prefix of the new text — extract only new words
+        const newPart = newWords.slice(commonLen).join(" ").trim();
+        if (newPart) textToWrite = newPart;
+      }
     }
 
     lastWritten.set(speaker, text);
@@ -1294,8 +1317,31 @@ export async function joinMeeting(opts: {
   } else {
     const userDataDir = join(OPENBUILDER_DIR, "chrome-profile");
     mkdirSync(userDataDir, { recursive: true });
+
+    // When using audio capture, use full Chrome (not headless-shell) with headless: false
+    // so the browser actually outputs audio. Xvfb provides the virtual display.
+    const useFullChrome = useAudioCapture;
+    const fullChromePath = useFullChrome
+      ? (() => {
+          const { execSync } = require("node:child_process");
+          try {
+            return execSync(
+              'find ~/.cache/ms-playwright/chromium-*/chrome-linux64 -name "chrome" -type f | head -1',
+              { encoding: "utf-8" },
+            ).trim();
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+
+    if (useFullChrome && fullChromePath) {
+      console.log(`  Using full Chrome for audio: ${fullChromePath}`);
+    }
+
     context = await pw.chromium.launchPersistentContext(userDataDir, {
-      headless: true,
+      headless: useFullChrome ? false : true,
+      ...(fullChromePath ? { executablePath: fullChromePath } : {}),
       args: chromiumArgs,
       ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
       viewport: { width: 1280, height: 720 },
