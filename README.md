@@ -201,6 +201,18 @@ npx openbuilder join <url> --auth
 
 The auth command opens a headed Chromium browser. Sign into your Google account, then press Enter. The session is saved to `~/.openbuilder/auth.json` and reused for future joins. Re-run if the session expires.
 
+### Automated Auth (Headless Servers)
+
+For headless servers or automated bots, use `--auto` mode with credentials in `.env`:
+
+```bash
+echo "GOOGLE_EMAIL=you@gmail.com" >> .env
+echo "GOOGLE_PASSWORD=yourpassword" >> .env
+npx openbuilder auth --auto
+```
+
+This signs in non-interactively and saves the session to `~/.openbuilder/auth.json`.
+
 ## Standalone Transcript Analysis
 
 OpenBuilder's AI analysis works on any transcript file in `[HH:MM:SS] Speaker: text` format — not just from live meetings:
@@ -255,6 +267,31 @@ For audio capture via PulseAudio + Whisper, you also need:
 - **OpenAI API key** — for Whisper transcription (`OPENAI_API_KEY` env var or config)
 
 If these aren't available, OpenBuilder automatically falls back to caption scraping.
+
+## OpenClaw Bot Setup
+
+To set up OpenBuilder as an automated meeting bot (e.g. for OpenClaw agents):
+
+1. **Install**: Clone the repo or `npm install openbuilder`
+2. **Configure credentials** in `.env`:
+   ```bash
+   GOOGLE_EMAIL=you@gmail.com
+   GOOGLE_PASSWORD=yourpassword
+   # For AI reports:
+   ANTHROPIC_API_KEY=sk-ant-...
+   # Or: OPENAI_API_KEY=sk-...
+   ```
+3. **Save Google session**: `npx openbuilder auth --auto`
+4. **Join meetings**: `npx openbuilder join <url> --auth --captions`
+5. **Transcripts** saved to `~/.openclaw/workspace/openbuilder/transcripts/`
+6. **Reports** saved to `~/.openclaw/workspace/openbuilder/reports/`
+
+### Notes
+
+- `.env` is gitignored — safe for credentials
+- Auth session saved to `~/.openbuilder/auth.json` — re-run `auth --auto` if expired
+- Caption mode (`--captions`) is the most reliable on headless servers
+- Audio mode (`--audio`) requires PulseAudio + ffmpeg + OpenAI key + Xvfb (experimental on servers)
 
 ## OpenClaw Integration
 

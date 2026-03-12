@@ -496,17 +496,20 @@ async function waitForMeetingEnd(
     durationMs?: number;
     captionIdleTimeoutMs?: number;
     getLastCaptionAt?: () => number;
+    verbose?: boolean;
   },
 ): Promise<string> {
   const start = Date.now();
   const durationMs = opts?.durationMs;
   const captionIdleTimeoutMs = opts?.captionIdleTimeoutMs;
   const getLastCaptionAt = opts?.getLastCaptionAt;
+  const verbose = opts?.verbose ?? false;
 
   // Track when we first detected being alone (to avoid premature exit)
   let aloneDetectedAt: number | null = null;
   const ALONE_GRACE_PERIOD_MS = 45_000; // Wait 45s to confirm everyone left (participant detection can be unreliable)
   let lastParticipantLog = 0;
+  let lastLoggedCount = -1;
 
   const checkEnded = async (): Promise<string | null> => {
     try {
@@ -529,9 +532,12 @@ async function waitForMeetingEnd(
     // Check if all other participants have left
     const participantCount = await getParticipantCount(page);
 
-    // Log participant count periodically (every 30s)
+    // Log participant count periodically — only when verbose or count changes
     if (Date.now() - lastParticipantLog > 30_000 && participantCount >= 0) {
-      console.log(`  [participants] ${participantCount} in meeting`);
+      if (verbose || participantCount !== lastLoggedCount) {
+        console.log(`  [participants] ${participantCount} in meeting`);
+        lastLoggedCount = participantCount;
+      }
       lastParticipantLog = Date.now();
     }
 
@@ -992,7 +998,7 @@ async function setupCaptionCapture(
     }
     lastMinuteKey = minuteKey;
 
-    const line = `[${hh}:${mm}:${ss}] ${speaker}: ${text}`;
+    const line = `[${hh}:${mm}:${ss}] ${speaker}: ${textToWrite}`;
     try {
       appendFileSync(transcriptPath, `${prefix}${line}\n`);
     } catch {
@@ -1084,7 +1090,6 @@ async function generateAutoReport(
     return;
   }
 
-  console.log("Generating AI meeting report...");
   console.log("Generating AI meeting report...");
 
   try {
@@ -1544,6 +1549,7 @@ export async function joinMeeting(opts: {
       durationMs: effectiveDurationMs,
       captionIdleTimeoutMs: 10 * 60_000,
       getLastCaptionAt: pipeline.getLastTranscriptAt,
+      verbose,
     });
     console.log(`\nLeaving meeting: ${reason}`);
 
@@ -1566,6 +1572,7 @@ export async function joinMeeting(opts: {
       durationMs: effectiveDurationMs,
       captionIdleTimeoutMs: 10 * 60_000,
       getLastCaptionAt,
+      verbose,
     });
     console.log(`\nLeaving meeting: ${reason}`);
 
