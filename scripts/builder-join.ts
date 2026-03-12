@@ -84,6 +84,8 @@ function parseArgs() {
   const noMic = !args.includes("--mic");
   const verbose = args.includes("--verbose");
   const noReport = args.includes("--no-report");
+  const forceAudio = args.includes("--audio");
+  const forceCaptions = args.includes("--captions");
 
   const durationIdx = args.indexOf("--duration");
   const durationRaw = durationIdx >= 0 ? args[durationIdx + 1] : undefined;
@@ -120,6 +122,11 @@ function parseArgs() {
     process.exit(1);
   }
 
+  if (forceAudio && forceCaptions) {
+    console.error("ERROR: Cannot use both --audio and --captions.");
+    process.exit(1);
+  }
+
   // Parse duration to milliseconds
   let durationMs: number | undefined;
   if (durationRaw) {
@@ -131,6 +138,11 @@ function parseArgs() {
       durationMs = value * (multipliers[unit] ?? 1);
     }
   }
+
+  // Determine capture mode
+  let captureMode: "audio" | "captions" | "auto" = "auto";
+  if (forceAudio) captureMode = "audio";
+  if (forceCaptions) captureMode = "captions";
 
   return {
     meetUrl,
@@ -144,6 +156,7 @@ function parseArgs() {
     botName,
     channel,
     target,
+    captureMode,
   };
 }
 
@@ -558,7 +571,7 @@ async function enableCaptions(page: Page): Promise<void> {
   }
 
   // Debug: take screenshot before attempting caption enable
-  const debugPath = join(OPENBUILDER_WORKSPACE_DIR, "debug-captions.png");
+  const debugPath = join(WORKSPACE_DIR, "debug-captions.png");
   await page.screenshot({ path: debugPath }).catch(() => {});
   console.log(`  [DEBUG] Pre-caption screenshot saved`);
 
@@ -1038,6 +1051,7 @@ export async function joinMeeting(opts: {
   botName?: string;
   channel?: string;
   target?: string;
+  captureMode?: "audio" | "captions" | "auto";
 }): Promise<{ context: BrowserContext; page: Page; reason: string }> {
   const {
     meetUrl,
@@ -1051,6 +1065,7 @@ export async function joinMeeting(opts: {
     botName: botNameOpt,
     channel,
     target,
+    captureMode: captureModeOpt,
   } = opts;
 
   // Resolve bot name from config or arg
@@ -1071,8 +1086,46 @@ export async function joinMeeting(opts: {
 
   ensureDirs();
 
+  // Resolve capture mode: CLI flag > config > "auto"
+  let useAudioCapture = false;
+  const resolvedCaptureMode = captureModeOpt ?? config.captureMode ?? "auto";
+
+  if (resolvedCaptureMode === "audio" || resolvedCaptureMode === "auto") {
+    const { isAudioCaptureAvailable } = await import("../src/audio/pipeline.js");
+    const audioDeps = isAudioCaptureAvailable();
+    if (audioDeps.available) {
+      useAudioCapture = true;
+      if (resolvedCaptureMode === "auto") {
+        console.log("  Auto-detected PulseAudio + ffmpeg — using audio capture mode");
+      }
+    } else if (resolvedCaptureMode === "audio") {
+      console.error(`ERROR: --audio requires: ${audioDeps.missing.join(", ")}`);
+      console.error("Install the missing dependencies or use --captions instead.");
+      process.exit(1);
+    } else {
+      console.log(`  Audio capture not available (missing: ${audioDeps.missing.join(", ")}) — falling back to captions`);
+    }
+  }
+
+  // Check for OpenAI API key when using audio mode (needed for Whisper)
+  if (useAudioCapture && !config.openaiApiKey && !process.env.OPENAI_API_KEY) {
+    console.warn("  WARNING: Audio capture requires OPENAI_API_KEY for Whisper transcription.");
+    console.warn("  Set it with: npx openbuilder config set openaiApiKey <key>");
+    console.warn("  Falling back to captions mode.");
+    useAudioCapture = false;
+  }
+
+  const meetingId = extractMeetingId(meetUrl);
+  const audioSinkName = `openbuilder_${meetingId.replace(/[^a-z0-9_-]/gi, "_")}`;
+
+  // If using audio capture, set PULSE_SINK before browser launch
+  if (useAudioCapture) {
+    process.env.PULSE_SINK = audioSinkName;
+  }
+
   console.log(`OpenBuilder — Joining meeting: ${meetUrl}`);
   console.log(`  Bot name: ${botName}`);
+  console.log(`  Capture mode: ${useAudioCapture ? "audio (PulseAudio + Whisper)" : "captions (DOM scraping)"}`);
   console.log(`  Camera: ${noCamera ? "off" : "on"}, Mic: ${noMic ? "off" : "on"}`);
   if (effectiveDurationMs) {
     console.log(`  Max duration: ${Math.round(effectiveDurationMs / 60_000)}m`);
@@ -1101,7 +1154,8 @@ export async function joinMeeting(opts: {
     "--no-default-browser-check",
     "--disable-sync",
     "--use-fake-ui-for-media-stream",
-    "--use-fake-device-for-media-stream",
+    // Only use fake device when NOT capturing real audio from the browser
+    ...(useAudioCapture ? [] : ["--use-fake-device-for-media-stream"]),
     "--auto-select-desktop-capture-source=Entire screen",
     "--disable-dev-shm-usage",
     "--window-size=1280,720",
@@ -1288,37 +1342,71 @@ export async function joinMeeting(opts: {
 
   await dismissPostJoinDialogs(currentPage);
 
-  // Enable captions and start capture
-  sendMessage({ channel, target, message: "Enabling live captions..." });
-  await enableCaptions(currentPage);
-
-  const meetingId = extractMeetingId(meetUrl);
   mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
   const transcriptPath = join(TRANSCRIPTS_DIR, `${meetingId}.txt`);
   writeFileSync(transcriptPath, "");
 
-  const { cleanup: cleanupCaptions, getLastCaptionAt } = await setupCaptionCapture(
-    currentPage,
-    transcriptPath,
-    verbose,
-  );
+  let reason: string;
 
-  sendMessage({
-    channel,
-    target,
-    message: "All set! Listening and capturing captions. I'll save the transcript when the meeting ends.",
-  });
+  if (useAudioCapture) {
+    // ── Audio capture mode ──────────────────────────────────────────
+    sendMessage({ channel, target, message: "Starting audio capture (PulseAudio + Whisper)..." });
+    console.log("Starting audio capture pipeline...");
 
-  // Wait for meeting to end
-  console.log("Waiting in meeting... (Ctrl+C to leave)");
-  const reason = await waitForMeetingEnd(currentPage, {
-    durationMs: effectiveDurationMs,
-    captionIdleTimeoutMs: 10 * 60_000,
-    getLastCaptionAt,
-  });
-  console.log(`\nLeaving meeting: ${reason}`);
+    const { startAudioPipeline } = await import("../src/audio/pipeline.js");
+    const pipeline = await startAudioPipeline({
+      sinkName: audioSinkName,
+      transcriptPath,
+      apiKey: config.openaiApiKey,
+      whisperModel: config.whisperModel,
+      verbose,
+    });
 
-  cleanupCaptions();
+    sendMessage({
+      channel,
+      target,
+      message: "All set! Capturing audio and transcribing with Whisper. I'll save the transcript when the meeting ends.",
+    });
+
+    console.log("Waiting in meeting... (Ctrl+C to leave)");
+    reason = await waitForMeetingEnd(currentPage, {
+      durationMs: effectiveDurationMs,
+      captionIdleTimeoutMs: 10 * 60_000,
+      getLastCaptionAt: pipeline.getLastTranscriptAt,
+    });
+    console.log(`\nLeaving meeting: ${reason}`);
+
+    await pipeline.stop();
+    pipeline.cleanup();
+    // Clean up PULSE_SINK env
+    delete process.env.PULSE_SINK;
+  } else {
+    // ── Caption scraping mode (fallback) ────────────────────────────
+    sendMessage({ channel, target, message: "Enabling live captions..." });
+    await enableCaptions(currentPage);
+
+    const { cleanup: cleanupCaptions, getLastCaptionAt } = await setupCaptionCapture(
+      currentPage,
+      transcriptPath,
+      verbose,
+    );
+
+    sendMessage({
+      channel,
+      target,
+      message: "All set! Listening and capturing captions. I'll save the transcript when the meeting ends.",
+    });
+
+    console.log("Waiting in meeting... (Ctrl+C to leave)");
+    reason = await waitForMeetingEnd(currentPage, {
+      durationMs: effectiveDurationMs,
+      captionIdleTimeoutMs: 10 * 60_000,
+      getLastCaptionAt,
+    });
+    console.log(`\nLeaving meeting: ${reason}`);
+
+    cleanupCaptions();
+  }
 
   if (existsSync(transcriptPath)) {
     const content = readFileSync(transcriptPath, "utf-8").trim();
@@ -1330,7 +1418,7 @@ export async function joinMeeting(opts: {
       await generateAutoReport(transcriptPath, meetingId, channel, target);
     }
   } else {
-    sendMessage({ channel, target, message: `Meeting ended (${reason}). No captions were captured.` });
+    sendMessage({ channel, target, message: `Meeting ended (${reason}). No transcript was captured.` });
   }
 
   return { context: currentContext, page: currentPage, reason };

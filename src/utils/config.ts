@@ -25,6 +25,8 @@ export interface OpenBuilderConfig {
   openaiApiKey?: string;
   botName?: string;
   defaultDuration?: string;
+  captureMode?: "audio" | "captions" | "auto";
+  whisperModel?: string;
 }
 
 const ENV_MAP: Record<string, keyof OpenBuilderConfig> = {
@@ -33,6 +35,8 @@ const ENV_MAP: Record<string, keyof OpenBuilderConfig> = {
   OPENAI_API_KEY: "openaiApiKey",
   OPENBUILDER_BOT_NAME: "botName",
   OPENBUILDER_DEFAULT_DURATION: "defaultDuration",
+  OPENBUILDER_CAPTURE_MODE: "captureMode",
+  OPENBUILDER_WHISPER_MODEL: "whisperModel",
 };
 
 /** Read the config file from disk. Returns empty object if not found. */
