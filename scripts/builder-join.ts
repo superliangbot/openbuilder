@@ -493,7 +493,7 @@ async function waitForMeetingEnd(
 
   // Track when we first detected being alone (to avoid premature exit)
   let aloneDetectedAt: number | null = null;
-  const ALONE_GRACE_PERIOD_MS = 15_000; // Wait 15s to confirm everyone left
+  const ALONE_GRACE_PERIOD_MS = 45_000; // Wait 45s to confirm everyone left (participant detection can be unreliable)
   let lastParticipantLog = 0;
 
   const checkEnded = async (): Promise<string | null> => {
@@ -523,15 +523,21 @@ async function waitForMeetingEnd(
       lastParticipantLog = Date.now();
     }
 
-    if (participantCount === 1) {
-      // Only the bot is left
+    if (participantCount === 1 || participantCount === 0) {
+      // Possibly only the bot is left (or count is wrong)
       if (!aloneDetectedAt) {
         aloneDetectedAt = Date.now();
-        console.log("  All other participants left — waiting 15s to confirm...");
+        console.log(`  Participant count is ${participantCount} — waiting 45s to confirm alone...`);
       } else if (Date.now() - aloneDetectedAt >= ALONE_GRACE_PERIOD_MS) {
-        // Confirmed alone for 15 seconds — meeting is over
-        await clickLeaveButton(page);
-        return "All other participants left";
+        // Re-check with a screenshot for debugging before leaving
+        const recheck = await getParticipantCount(page);
+        if (recheck <= 1) {
+          await clickLeaveButton(page);
+          return "All other participants left";
+        } else {
+          // False alarm — reset
+          aloneDetectedAt = null;
+        }
       }
     } else if (participantCount > 1) {
       // Someone is still here — reset the alone timer
@@ -1304,8 +1310,26 @@ export async function joinMeeting(opts: {
   let page: Page;
 
   if (hasAuth) {
+    // For audio capture, use full Chrome (not headless-shell) with headless: false
+    // so the browser actually outputs audio to PulseAudio. Xvfb provides the virtual display.
+    const useFullChrome = useAudioCapture;
+    let fullChromePath: string | undefined;
+    if (useFullChrome) {
+      try {
+        const result = execSync(
+          'find ~/.cache/ms-playwright/chromium-*/chrome-linux64 -name "chrome" -type f | head -1',
+          { encoding: "utf-8" },
+        ).trim();
+        fullChromePath = result || undefined;
+      } catch { /* fallback to default */ }
+    }
+    if (useFullChrome && fullChromePath) {
+      console.log(`  Using full Chrome for audio: ${fullChromePath}`);
+    }
+
     const browser = await pw.chromium.launch({
-      headless: !headed,
+      headless: useFullChrome ? false : !headed,
+      ...(fullChromePath ? { executablePath: fullChromePath } : {}),
       args: chromiumArgs,
       ignoreDefaultArgs: ["--enable-automation", "--mute-audio"],
     });
