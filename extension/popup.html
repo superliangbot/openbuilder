@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBuilder</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <img src="icons/icon48.png" alt="OpenBuilder" width="24" height="24">
+      <h1>OpenBuilder</h1>
+    </div>
+    <a href="#" id="settingsBtn" class="settings-icon" title="Settings">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M6.5 1L7.1 3.1C7.4 3.2 7.7 3.3 8 3.5L10 2.5L11.5 4L10.5 6C10.7 6.3 10.8 6.6 10.9 6.9L13 7.5V9.5L10.9 10.1C10.8 10.4 10.7 10.7 10.5 11L11.5 13L10 14.5L8 13.5C7.7 13.7 7.4 13.8 7.1 13.9L6.5 16H4.5L3.9 13.9C3.6 13.8 3.3 13.7 3 13.5L1 14.5L-0.5 13L0.5 11C0.3 10.7 0.2 10.4 0.1 10.1L-2 9.5V7.5L0.1 6.9C0.2 6.6 0.3 6.3 0.5 6L-0.5 4L1 2.5L3 3.5C3.3 3.3 3.6 3.2 3.9 3.1L4.5 1H6.5Z" transform="translate(2.5 0)" stroke="currentColor" stroke-width="1.2" fill="none"/>
+        <circle cx="8" cy="8.5" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/>
+      </svg>
+    </a>
+  </header>
+
+  <!-- Status section -->
+  <section id="statusSection" class="status-section">
+    <div class="status-row">
+      <span id="statusDot" class="status-dot idle"></span>
+      <span id="statusText">Not in a meeting</span>
+    </div>
+    <div id="meetingInfo" class="meeting-info hidden">
+      <div class="info-row">
+        <span class="label">Meeting:</span>
+        <span id="meetingCode" class="value">—</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Duration:</span>
+        <span id="duration" class="value">00:00</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Captions:</span>
+        <span id="captionCount" class="value">0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Actions -->
+  <section class="actions">
+    <button id="audioBtn" class="btn btn-primary" disabled>
+      <span id="audioBtnText">Start Audio Recording</span>
+    </button>
+    <button id="copyBtn" class="btn btn-secondary" disabled>
+      Copy Transcript
+    </button>
+    <button id="reportBtn" class="btn btn-accent" disabled>
+      Generate Report
+    </button>
+  </section>
+
+  <!-- Report result -->
+  <section id="reportSection" class="report-section hidden">
+    <h2>Last Report</h2>
+    <div id="reportPreview" class="report-preview"></div>
+    <button id="openReportBtn" class="btn btn-link">Open Full Report</button>
+  </section>
+
+  <!-- Loading overlay -->
+  <div id="loading" class="loading hidden">
+    <div class="spinner"></div>
+    <span id="loadingText">Generating report...</span>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
