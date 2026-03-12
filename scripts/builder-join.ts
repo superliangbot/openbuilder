@@ -1323,12 +1323,12 @@ export async function joinMeeting(opts: {
     const useFullChrome = useAudioCapture;
     const fullChromePath = useFullChrome
       ? (() => {
-          const { execSync } = require("node:child_process");
           try {
-            return execSync(
+            const result = execSync(
               'find ~/.cache/ms-playwright/chromium-*/chrome-linux64 -name "chrome" -type f | head -1',
               { encoding: "utf-8" },
             ).trim();
+            return result || undefined;
           } catch {
             return undefined;
           }
