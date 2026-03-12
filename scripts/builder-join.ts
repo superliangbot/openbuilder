@@ -49,9 +49,12 @@ function sendImage(opts: {
 }): void {
   if (opts.channel && opts.target) {
     try {
-      execSync(
+      // Fire-and-forget (async) to avoid blocking the meeting loop
+      const { exec: execAsync } = require("node:child_process");
+      execAsync(
         `openclaw message send --channel ${opts.channel} --target ${JSON.stringify(opts.target)} --message ${JSON.stringify(opts.message)} --media ${JSON.stringify(opts.mediaPath)}`,
-        { stdio: "inherit", timeout: 30_000 },
+        { timeout: 30_000 },
+        () => {},
       );
     } catch (err) {
       console.error("Failed to send image:", err instanceof Error ? err.message : String(err));
@@ -62,9 +65,12 @@ function sendImage(opts: {
 function sendMessage(opts: { channel?: string; target?: string; message: string }): void {
   if (opts.channel && opts.target) {
     try {
-      execSync(
+      // Fire-and-forget (async) to avoid blocking the meeting loop
+      const { exec: execAsync } = require("node:child_process");
+      execAsync(
         `openclaw message send --channel ${opts.channel} --target ${JSON.stringify(opts.target)} --message ${JSON.stringify(opts.message)}`,
-        { stdio: "inherit", timeout: 30_000 },
+        { timeout: 30_000 },
+        () => {},
       );
     } catch {
       // Best-effort
@@ -1073,7 +1079,7 @@ async function generateAutoReport(
   }
 
   console.log("Generating AI meeting report...");
-  sendMessage({ channel, target, message: "Generating AI meeting report..." });
+  console.log("Generating AI meeting report...");
 
   try {
     // Dynamically import to avoid circular deps and keep the join script lean
@@ -1386,7 +1392,7 @@ export async function joinMeeting(opts: {
   let currentPage = page;
   let joined = false;
 
-  sendMessage({ channel, target, message: `Trying to join the meeting (up to 2 attempts)...` });
+  // Only send essential status messages to avoid Telegram "typing" spam
 
   for (let attempt = 1; attempt <= MAX_JOIN_RETRIES; attempt++) {
     console.log(`\nNavigating to meeting... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
@@ -1458,11 +1464,7 @@ export async function joinMeeting(opts: {
 
     if (joined) {
       registerScreenshotHandler(currentPage);
-      sendMessage({
-        channel,
-        target,
-        message: `Waiting to be admitted — please ask the host to let "${botName}" in`,
-      });
+      sendMessage({ channel, target, message: `Joining meeting — please admit "${botName}" if prompted` });
       try {
         await waitUntilInMeeting(currentPage);
         break;
@@ -1520,7 +1522,6 @@ export async function joinMeeting(opts: {
 
   if (useAudioCapture) {
     // ── Audio capture mode ──────────────────────────────────────────
-    sendMessage({ channel, target, message: "Starting audio capture (PulseAudio + Whisper)..." });
     console.log("Starting audio capture pipeline...");
 
     const { startAudioPipeline } = await import("../src/audio/pipeline.js");
@@ -1530,12 +1531,6 @@ export async function joinMeeting(opts: {
       apiKey: config.openaiApiKey,
       whisperModel: config.whisperModel,
       verbose,
-    });
-
-    sendMessage({
-      channel,
-      target,
-      message: "All set! Capturing audio and transcribing with Whisper. I'll save the transcript when the meeting ends.",
     });
 
     console.log("Waiting in meeting... (Ctrl+C to leave)");
@@ -1552,7 +1547,6 @@ export async function joinMeeting(opts: {
     delete process.env.PULSE_SINK;
   } else {
     // ── Caption scraping mode (fallback) ────────────────────────────
-    sendMessage({ channel, target, message: "Enabling live captions..." });
     await enableCaptions(currentPage);
 
     const { cleanup: cleanupCaptions, getLastCaptionAt } = await setupCaptionCapture(
@@ -1560,12 +1554,6 @@ export async function joinMeeting(opts: {
       transcriptPath,
       verbose,
     );
-
-    sendMessage({
-      channel,
-      target,
-      message: "All set! Listening and capturing captions. I'll save the transcript when the meeting ends.",
-    });
 
     console.log("Waiting in meeting... (Ctrl+C to leave)");
     reason = await waitForMeetingEnd(currentPage, {
