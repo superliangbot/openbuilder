@@ -72,6 +72,7 @@ async function registerClient(): Promise<ReadAIClientCredentials> {
     response_types: ["code"],
     scope: OAUTH_SCOPE,
     token_endpoint_auth_method: "client_secret_basic",
+    audience: ["https://api.read.ai/v1/meetings", "https://api.read.ai/mcp"],
   };
 
   const res = await fetch(OAUTH_REGISTER_URL, {
