@@ -88,7 +88,7 @@ async function syncAll() {
 
         const detail = await mcpCall(token, "get_meeting_by_id", {
           id: m.id,
-          expand: ["summary", "action_items", "key_questions", "topics", "transcript"],
+          expand: ["summary", "chapter_summaries", "action_items", "key_questions", "topics", "transcript", "metrics", "recording_download"],
         });
 
         // Save full data
