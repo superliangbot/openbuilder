@@ -25,13 +25,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/sdk": "^0.80.0",
     "dotenv": "^17.3.1",
     "playwright-core": "^1.58.2",
     "tsx": "^4.21.0"
   },
   "peerDependencies": {
-    "openai": "^6.27.0"
+    "openai": "^6.32.0"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": {
