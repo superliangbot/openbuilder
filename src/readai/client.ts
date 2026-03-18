@@ -156,7 +156,16 @@ export async function listMeetings(params?: ListMeetingsParams): Promise<ListMee
   if (params?.limit !== undefined) queryParams.limit = String(params.limit);
   if (params?.offset !== undefined) queryParams.offset = String(params.offset);
 
-  return readaiRequest<ListMeetingsResponse>("/v1/meetings", queryParams);
+  const raw = await readaiRequest<Record<string, unknown>>("/v1/meetings", queryParams);
+
+  // API returns { data: [...] } but we normalize to { meetings: [...] }
+  const meetings = (raw.data ?? raw.meetings ?? []) as ReadAIMeeting[];
+  return {
+    meetings,
+    total: raw.total as number | undefined,
+    limit: raw.limit as number | undefined,
+    offset: raw.offset as number | undefined,
+  };
 }
 
 /**

@@ -1,25 +1,28 @@
 /**
  * auth.ts — OAuth2 client for Read AI
  *
- * Handles dynamic client registration, authorization URL building,
- * token exchange, auto-refresh, and token persistence.
+ * Uses Authorization Code flow with a localhost callback server.
+ * No manual code pasting needed — browser redirects back automatically.
  *
  * Tokens are stored at ~/.openbuilder/readai-auth.json
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { URL } from "node:url";
 
 const OPENBUILDER_DIR = join(homedir(), ".openbuilder");
 const READAI_AUTH_FILE = join(OPENBUILDER_DIR, "readai-auth.json");
 
-const READAI_BASE_URL = "https://api.read.ai";
-const OAUTH_REGISTER_URL = `${READAI_BASE_URL}/oauth/register`;
-const OAUTH_AUTHORIZE_URL = `${READAI_BASE_URL}/oauth/authorize`;
-const OAUTH_TOKEN_URL = `${READAI_BASE_URL}/oauth/token`;
-const OAUTH_REDIRECT_URI = `${READAI_BASE_URL}/oauth/ui`;
+// Endpoints from https://authn.read.ai/.well-known/openid-configuration
+const OAUTH_REGISTER_URL = "https://api.read.ai/oauth/register";
+const OAUTH_AUTHORIZE_URL = "https://authn.read.ai/oauth2/auth";
+const OAUTH_TOKEN_URL = "https://authn.read.ai/oauth2/token";
 
+const CALLBACK_PORT = 8976;
+const OAUTH_REDIRECT_URI = `http://localhost:${CALLBACK_PORT}/callback`;
 const OAUTH_SCOPE = "openid email offline_access profile meeting:read mcp:execute";
 
 interface ReadAIClientCredentials {
@@ -32,7 +35,6 @@ interface ReadAITokens {
   refresh_token: string;
   token_type: string;
   expires_in: number;
-  /** ISO timestamp when the access token expires */
   expires_at: string;
   scope: string;
 }
@@ -43,7 +45,6 @@ interface ReadAIAuthState {
   savedAt: string;
 }
 
-/** Load saved auth state from disk. Returns null if not found or invalid. */
 function loadAuthState(): ReadAIAuthState | null {
   if (!existsSync(READAI_AUTH_FILE)) return null;
   try {
@@ -53,22 +54,16 @@ function loadAuthState(): ReadAIAuthState | null {
   }
 }
 
-/** Save auth state to disk. */
 function saveAuthState(state: ReadAIAuthState): void {
   mkdirSync(OPENBUILDER_DIR, { recursive: true });
   writeFileSync(READAI_AUTH_FILE, JSON.stringify(state, null, 2) + "\n");
 }
 
-/** Check whether the access token has expired (with 60s buffer). */
 function isTokenExpired(tokens: ReadAITokens): boolean {
   const expiresAt = new Date(tokens.expires_at).getTime();
   return Date.now() >= expiresAt - 60_000;
 }
 
-/**
- * Register a new OAuth2 client with Read AI.
- * This is a one-time step; credentials are saved and reused.
- */
 async function registerClient(): Promise<ReadAIClientCredentials> {
   const body = {
     client_name: "OpenBuilder",
@@ -91,21 +86,13 @@ async function registerClient(): Promise<ReadAIClientCredentials> {
   }
 
   const data = (await res.json()) as Record<string, unknown>;
-  const client_id = data.client_id as string;
-  const client_secret = data.client_secret as string;
-
-  if (!client_id || !client_secret) {
-    throw new Error("Registration response missing client_id or client_secret");
-  }
-
-  return { client_id, client_secret };
+  return {
+    client_id: data.client_id as string,
+    client_secret: data.client_secret as string,
+  };
 }
 
-/**
- * Build the OAuth authorization URL for user consent.
- * The user should open this URL in their browser.
- */
-function buildAuthorizationURL(client: ReadAIClientCredentials): string {
+function buildAuthorizationURL(client: ReadAIClientCredentials, state: string): string {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: client.client_id,
@@ -113,15 +100,66 @@ function buildAuthorizationURL(client: ReadAIClientCredentials): string {
     scope: OAUTH_SCOPE,
     access_type: "offline",
     prompt: "consent",
+    state,
   });
-
   return `${OAUTH_AUTHORIZE_URL}?${params.toString()}`;
 }
 
 /**
- * Exchange an authorization code for access + refresh tokens.
- * Uses HTTP Basic auth (client_secret_basic).
+ * Start a temporary localhost HTTP server that waits for the OAuth callback.
+ * Returns the authorization code from the redirect.
  */
+function waitForCallback(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      server.close();
+      reject(new Error("Timed out waiting for authorization (5 minutes). Try again."));
+    }, 5 * 60 * 1000);
+
+    const server = createServer((req, res) => {
+      const url = new URL(req.url || "/", `http://localhost:${CALLBACK_PORT}`);
+
+      if (url.pathname === "/callback") {
+        const code = url.searchParams.get("code");
+        const error = url.searchParams.get("error");
+
+        if (error) {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(`<html><body><h2>Authorization failed</h2><p>${error}</p><p>You can close this tab.</p></body></html>`);
+          clearTimeout(timeout);
+          server.close();
+          reject(new Error(`Authorization failed: ${error}`));
+          return;
+        }
+
+        if (code) {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(`<html><body><h2>✅ Authorized!</h2><p>OpenBuilder is now connected to Read AI.</p><p>You can close this tab and return to your terminal.</p></body></html>`);
+          clearTimeout(timeout);
+          server.close();
+          resolve(code);
+          return;
+        }
+
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Missing authorization code");
+      } else {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+    });
+
+    server.listen(CALLBACK_PORT, "127.0.0.1", () => {
+      // Server ready
+    });
+
+    server.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to start callback server on port ${CALLBACK_PORT}: ${err.message}`));
+    });
+  });
+}
+
 async function exchangeCode(
   client: ReadAIClientCredentials,
   code: string,
@@ -159,9 +197,6 @@ async function exchangeCode(
   };
 }
 
-/**
- * Refresh the access token using the saved refresh token.
- */
 async function refreshAccessToken(
   client: ReadAIClientCredentials,
   refreshToken: string,
@@ -199,17 +234,17 @@ async function refreshAccessToken(
 }
 
 /**
- * Run the full OAuth authorization flow:
+ * Run the full OAuth flow:
  * 1. Register client (or reuse existing)
- * 2. Open browser for user consent
- * 3. Wait for user to provide the authorization code
- * 4. Exchange code for tokens
- * 5. Save everything to disk
+ * 2. Start localhost callback server
+ * 3. Open browser for authorization
+ * 4. Wait for redirect with code
+ * 5. Exchange code for tokens
+ * 6. Save everything
  */
 export async function authorize(): Promise<void> {
   let client: ReadAIClientCredentials;
 
-  // Reuse existing client credentials if available
   const existing = loadAuthState();
   if (existing?.client?.client_id) {
     console.log("Reusing existing Read AI client registration.");
@@ -217,61 +252,40 @@ export async function authorize(): Promise<void> {
   } else {
     console.log("Registering new OAuth2 client with Read AI...");
     client = await registerClient();
-    console.log("Client registered successfully.");
+    console.log("Client registered successfully.\n");
   }
 
-  // Build authorization URL and prompt user
-  const authURL = buildAuthorizationURL(client);
-  console.log("\nOpen this URL in your browser to authorize OpenBuilder:\n");
-  console.log(`  ${authURL}\n`);
+  const oauthState = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const authURL = buildAuthorizationURL(client, oauthState);
 
-  // Try to open the browser automatically
+  console.log("Opening your browser for Read AI authorization...\n");
+  console.log(`If it doesn't open automatically, go to:\n  ${authURL}\n`);
+
+  // Start callback server BEFORE opening browser
+  const codePromise = waitForCallback();
+
+  // Open browser
   try {
     const { exec } = await import("node:child_process");
     const openCmd =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "start"
-          : "xdg-open";
+      process.platform === "darwin" ? "open" :
+      process.platform === "win32" ? "start" : "xdg-open";
     exec(`${openCmd} "${authURL}"`);
-    console.log("(Browser should open automatically — if not, copy the URL above.)\n");
-  } catch {
-    // Silently ignore if browser can't be opened
-  }
+  } catch { /* ignore */ }
 
-  // Read the authorization code from stdin
-  const readline = await import("node:readline");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  console.log("Waiting for authorization (this will complete automatically)...\n");
 
-  const code = await new Promise<string>((resolve) => {
-    rl.question("Paste the authorization code here: ", (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
+  const code = await codePromise;
 
-  if (!code) {
-    throw new Error("No authorization code provided.");
-  }
-
-  console.log("\nExchanging authorization code for tokens...");
+  console.log("Authorization received! Exchanging for tokens...");
   const tokens = await exchangeCode(client, code);
 
-  const state: ReadAIAuthState = {
-    client,
-    tokens,
-    savedAt: new Date().toISOString(),
-  };
+  const state: ReadAIAuthState = { client, tokens, savedAt: new Date().toISOString() };
   saveAuthState(state);
 
-  console.log("Read AI authorization complete! Tokens saved to ~/.openbuilder/readai-auth.json");
+  console.log("\n✅ Read AI connected! Tokens saved to ~/.openbuilder/readai-auth.json");
 }
 
-/**
- * Get a valid access token, refreshing if necessary.
- * Throws if not authenticated.
- */
 export async function getAccessToken(): Promise<string> {
   const state = loadAuthState();
   if (!state?.tokens?.access_token) {
@@ -282,9 +296,8 @@ export async function getAccessToken(): Promise<string> {
     return state.tokens.access_token;
   }
 
-  // Token expired — try to refresh
   if (!state.tokens.refresh_token) {
-    throw new Error("Access token expired and no refresh token available. Run: npx openbuilder readai auth");
+    throw new Error("Access token expired and no refresh token. Run: npx openbuilder readai auth");
   }
 
   console.log("Read AI access token expired, refreshing...");
@@ -300,9 +313,6 @@ export async function getAccessToken(): Promise<string> {
   return newTokens.access_token;
 }
 
-/**
- * Check if the user has saved Read AI credentials.
- */
 export function isAuthenticated(): boolean {
   const state = loadAuthState();
   return !!(state?.tokens?.access_token);
