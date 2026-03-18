@@ -103,6 +103,8 @@ export interface ListMeetingsParams {
 
 export interface ListMeetingsResponse {
   meetings: ReadAIMeeting[];
+  data?: ReadAIMeeting[];
+  has_more?: boolean;
   total?: number;
   limit?: number;
   offset?: number;
@@ -156,7 +158,15 @@ export async function listMeetings(params?: ListMeetingsParams): Promise<ListMee
   if (params?.limit !== undefined) queryParams.limit = String(params.limit);
   if (params?.offset !== undefined) queryParams.offset = String(params.offset);
 
-  return readaiRequest<ListMeetingsResponse>("/v1/meetings", queryParams);
+  const raw = await readaiRequest<ListMeetingsResponse>("/v1/meetings", queryParams);
+  // Normalize: API returns `data`, our interface uses `meetings`
+  if (!raw.meetings && raw.data) {
+    raw.meetings = raw.data;
+  }
+  if (!raw.meetings) {
+    raw.meetings = [];
+  }
+  return raw;
 }
 
 /**

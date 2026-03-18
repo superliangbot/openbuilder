@@ -15,11 +15,11 @@ const OPENBUILDER_DIR = join(homedir(), ".openbuilder");
 const READAI_AUTH_FILE = join(OPENBUILDER_DIR, "readai-auth.json");
 
 const READAI_BASE_URL = "https://api.read.ai";
-const READAI_APP_URL = "https://app.read.ai";
-const OAUTH_REGISTER_URL = `${READAI_BASE_URL}/oauth/register`;
-const OAUTH_AUTHORIZE_URL = `${READAI_APP_URL}/oauth/authorize`;
-const OAUTH_TOKEN_URL = `${READAI_APP_URL}/oauth/token`;
-const OAUTH_REDIRECT_URI = `${READAI_APP_URL}/oauth/ui`;
+const READAI_AUTHN_URL = "https://authn.read.ai";
+const OAUTH_REGISTER_URL = `${READAI_AUTHN_URL}/oauth2/register`;
+const OAUTH_AUTHORIZE_URL = `${READAI_AUTHN_URL}/oauth2/auth`;
+const OAUTH_TOKEN_URL = `${READAI_AUTHN_URL}/oauth2/token`;
+const OAUTH_REDIRECT_URI = `${READAI_BASE_URL}/oauth/ui`;
 
 const OAUTH_SCOPE = "openid email offline_access profile meeting:read mcp:execute";
 
