@@ -1,12 +1,16 @@
 import { getAccessToken } from "../src/readai/auth.js";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const REPORTS_DIR = join(homedir(), ".openclaw/workspace/openbuilder/reports");
 const TRANSCRIPTS_DIR = join(homedir(), ".openclaw/workspace/openbuilder/transcripts");
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const RAW_DIR = join(PROJECT_ROOT, "data", "raw");
 mkdirSync(REPORTS_DIR, { recursive: true });
 mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
+mkdirSync(RAW_DIR, { recursive: true });
 
 interface McpMeeting {
   id: string;
@@ -91,8 +95,10 @@ async function syncAll() {
           expand: ["summary", "chapter_summaries", "action_items", "key_questions", "topics", "transcript", "metrics", "recording_download"],
         });
 
-        // Save full data
-        writeFileSync(dataPath, JSON.stringify(detail, null, 2));
+        // Save full data (to reports dir and repo data/raw/)
+        const jsonData = JSON.stringify(detail, null, 2);
+        writeFileSync(dataPath, jsonData);
+        writeFileSync(join(RAW_DIR, `readai-${safeId}-data.json`), jsonData);
 
         // Save transcript
         if (detail.transcript?.turns?.length) {

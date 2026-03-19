@@ -6,6 +6,11 @@
   "bin": {
     "openbuilder": "bin/openbuilder.mjs"
   },
+  "scripts": {
+    "build": "tsc",
+    "cli": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "files": [
     "bin",
     "scripts",
@@ -26,6 +31,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "better-sqlite3": "^12.8.0",
     "dotenv": "^17.3.1",
     "playwright-core": "^1.58.2",
     "tsx": "^4.21.0"
@@ -51,5 +57,9 @@
     "action-items",
     "meeting-notes",
     "openclaw"
-  ]
+  ],
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "typescript": "^5.9.3"
+  }
 }
