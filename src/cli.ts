@@ -15,6 +15,11 @@ import {
   getMetricsTrend,
   getSpeakerStats,
 } from "./db/query.js";
+import {
+  embedAllMeetings,
+  getEmbedStats,
+  semanticSearch,
+} from "./db/vectors.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -366,6 +371,72 @@ function cmdMetrics(flags: Record<string, string>) {
   }
 }
 
+async function cmdEmbed(flags: Record<string, string>) {
+  const db = openDb();
+  initSchema(db);
+  const force = flags.force === "true";
+  console.log(force ? "Re-embedding all meetings..." : "Embedding new meetings...");
+  const stats = await embedAllMeetings(db, { force });
+  db.close();
+  console.log(`Done: ${stats.meetings} meetings embedded (${stats.chunks} chunks), ${stats.skipped} skipped.`);
+}
+
+function cmdEmbedStatus() {
+  const db = openDb();
+  initSchema(db);
+  const stats = getEmbedStats(db);
+  const totalMeetings = (db.prepare("SELECT COUNT(*) AS c FROM meetings").get() as { c: number }).c;
+  db.close();
+
+  console.log("Embedding Status");
+  console.log("──────────────────────────────");
+  console.log(`  Total embeddings:    ${String(stats.total_embeddings).padStart(6)}`);
+  console.log(`  Meetings embedded:   ${String(stats.meetings_embedded).padStart(6)} / ${totalMeetings}`);
+  if (Object.keys(stats.by_type).length > 0) {
+    console.log("\n  By type:");
+    for (const [type, count] of Object.entries(stats.by_type)) {
+      console.log(`    ${type.padEnd(18)} ${String(count).padStart(6)}`);
+    }
+  }
+}
+
+async function cmdSemantic(positional: string[], flags: Record<string, string>) {
+  const query = positional.join(" ");
+  if (!query) {
+    console.error("Usage: openbuilder semantic <query>");
+    process.exit(1);
+  }
+
+  const db = openDb();
+  initSchema(db);
+  const results = await semanticSearch(db, query, {
+    limit: flags.limit ? parseInt(flags.limit) : undefined,
+    chunkType: flags.type,
+    meetingId: flags.meeting,
+    since: flags.since,
+  });
+  db.close();
+
+  if (flags.json === "true") {
+    console.log(JSON.stringify(results, null, 2));
+    return;
+  }
+
+  if (results.length === 0) {
+    console.log("No results found. Have you run `openbuilder embed` first?");
+    return;
+  }
+
+  console.log(`\n── Semantic Search: "${query}" (${results.length} results) ──\n`);
+  for (const r of results) {
+    const sim = (r.similarity * 100).toFixed(1);
+    console.log(`  [${sim}%] ${r.meeting_date}  ${truncate(r.meeting_title, 40)}  (${r.chunk_type})`);
+    const text = r.chunk_text.replace(/\n/g, " ");
+    console.log(`    ${truncate(text, 140)}`);
+    console.log();
+  }
+}
+
 function showHelp() {
   console.log(`
 OpenBuilder — Meeting Intelligence CLI
@@ -393,6 +464,14 @@ Commands:
   speakers [--since]      Speaker stats (who talks most)
   metrics [--title]       Metrics trends for a meeting series
 
+  embed [--force]         Embed all meetings for semantic search
+  embed-status            Show embedding statistics
+  semantic <query>        Semantic search (meaning-based)
+    --type <type>           Filter by chunk type (transcript|summary|chapter|action_item|topic)
+    --since <date>          Filter by date
+    --meeting <id>          Filter by meeting
+    --limit <n>             Max results
+
 Global flags:
   --json                  Output as JSON
   --help                  Show this help
@@ -415,7 +494,7 @@ switch (command) {
         cmdDbInit();
         break;
       case "ingest":
-        cmdDbIngest(flags);
+        await cmdDbIngest(flags);
         break;
       case "status":
         cmdDbStatus();
@@ -442,6 +521,15 @@ switch (command) {
     break;
   case "metrics":
     cmdMetrics(flags);
+    break;
+  case "embed":
+    await cmdEmbed(flags);
+    break;
+  case "embed-status":
+    cmdEmbedStatus();
+    break;
+  case "semantic":
+    await cmdSemantic(positional, flags);
     break;
   default:
     console.error(`Unknown command: ${command}`);

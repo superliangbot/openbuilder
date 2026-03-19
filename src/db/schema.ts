@@ -104,6 +104,20 @@ export function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_topics_meeting ON topics(meeting_id);
     CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date);
 
+    -- Vector embeddings
+    CREATE TABLE IF NOT EXISTS embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id TEXT NOT NULL REFERENCES meetings(id),
+      chunk_type TEXT NOT NULL,
+      chunk_text TEXT NOT NULL,
+      chunk_index INTEGER,
+      speaker_name TEXT,
+      embedding TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_embeddings_meeting ON embeddings(meeting_id);
+    CREATE INDEX IF NOT EXISTS idx_embeddings_type ON embeddings(chunk_type);
+
     -- Full-text search (standalone tables populated during ingest)
     CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
       meeting_id,
