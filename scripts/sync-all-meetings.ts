@@ -1,4 +1,7 @@
 import { getAccessToken } from "../src/readai/auth.js";
+import { openDb, initSchema } from "../src/db/schema.js";
+import { ingestAllFromDirectory } from "../src/db/ingest.js";
+import { embedAllMeetings } from "../src/db/vectors.js";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -139,6 +142,22 @@ async function syncAll() {
   }
 
   console.log(`\nDone! ${newSynced} new meetings synced, ${totalFound} total found.`);
+
+  // Auto-ingest and embed if new meetings were synced
+  if (newSynced > 0) {
+    console.log("\nIngesting new meetings into database...");
+    const db = openDb();
+    initSchema(db);
+
+    const ingestStats = ingestAllFromDirectory(db, REPORTS_DIR);
+    console.log(`Ingested ${ingestStats.ingested} meetings (${ingestStats.errors} errors).`);
+
+    console.log("\nEmbedding new meetings...");
+    const embedStats = await embedAllMeetings(db);
+    db.close();
+
+    console.log(`\nSynced ${newSynced} new meetings, ingested into DB, embedded ${embedStats.meetings} new meetings.`);
+  }
 }
 
 syncAll();

@@ -20,12 +20,20 @@ import {
   getEmbedStats,
   semanticSearch,
 } from "./db/vectors.js";
+import { generateWeeklyDigest } from "./digest.js";
+import {
+  exportActionItems,
+  exportMeetingSummaries,
+  exportTranscript,
+} from "./export.js";
+import { writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 // ── Arg parsing ──────────────────────────────────────────────────────
 
-const SUBCOMMAND_PARENTS = new Set(["db"]);
+const SUBCOMMAND_PARENTS = new Set(["db", "export"]);
 
 function parseArgs(argv: string[]): { command: string; subcommand: string; positional: string[]; flags: Record<string, string> } {
   const args = argv.slice(2);
@@ -437,6 +445,96 @@ async function cmdSemantic(positional: string[], flags: Record<string, string>) 
   }
 }
 
+function cmdDigest(flags: Record<string, string>) {
+  const db = openDb();
+  initSchema(db);
+  const digest = generateWeeklyDigest(db, {
+    since: flags.since,
+    until: flags.until,
+  });
+  db.close();
+
+  if (!digest) {
+    console.log("No meetings found in the last 7 days.");
+    return;
+  }
+
+  console.log(digest);
+
+  if (flags.save === "true") {
+    const digestsDir = join(homedir(), ".openbuilder", "digests");
+    mkdirSync(digestsDir, { recursive: true });
+    const since = flags.since
+      ? new Date(flags.since)
+      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const year = since.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    const dayOfYear = Math.floor((since.getTime() - jan1.getTime()) / 86400000) + 1;
+    const week = String(Math.ceil(dayOfYear / 7)).padStart(2, "0");
+    const filePath = join(digestsDir, `${year}-${week}.md`);
+    writeFileSync(filePath, digest);
+    console.log(`\nSaved to: ${filePath}`);
+  }
+}
+
+function cmdExportActions(flags: Record<string, string>) {
+  const db = openDb();
+  initSchema(db);
+  const output = exportActionItems(db, {
+    assignee: flags.assignee,
+    since: flags.since,
+    until: flags.until,
+    format: (flags.format as "md" | "json" | "csv") ?? "md",
+  });
+  db.close();
+
+  if (flags.output) {
+    writeFileSync(flags.output, output);
+    console.log(`Written to: ${flags.output}`);
+  } else {
+    console.log(output);
+  }
+}
+
+function cmdExportMeetings(flags: Record<string, string>) {
+  const db = openDb();
+  initSchema(db);
+  const output = exportMeetingSummaries(db, {
+    since: flags.since,
+    until: flags.until,
+    title: flags.title,
+    format: (flags.format as "md" | "json") ?? "md",
+  });
+  db.close();
+
+  if (flags.output) {
+    writeFileSync(flags.output, output);
+    console.log(`Written to: ${flags.output}`);
+  } else {
+    console.log(output);
+  }
+}
+
+function cmdExportTranscript(positional: string[], flags: Record<string, string>) {
+  const meetingId = positional[0];
+  if (!meetingId) {
+    console.error("Usage: openbuilder export transcript <meeting_id>");
+    process.exit(1);
+  }
+
+  const db = openDb();
+  initSchema(db);
+  const output = exportTranscript(db, meetingId, (flags.format as "md" | "json" | "txt") ?? "md");
+  db.close();
+
+  if (flags.output) {
+    writeFileSync(flags.output, output);
+    console.log(`Written to: ${flags.output}`);
+  } else {
+    console.log(output);
+  }
+}
+
 function showHelp() {
   console.log(`
 OpenBuilder — Meeting Intelligence CLI
@@ -471,6 +569,25 @@ Commands:
     --since <date>          Filter by date
     --meeting <id>          Filter by meeting
     --limit <n>             Max results
+
+  digest [options]        Generate weekly meeting digest
+    --since <date>          Start date (default: 7 days ago)
+    --until <date>          End date (default: today)
+    --save                  Save to ~/.openbuilder/digests/
+
+  export actions [opts]   Export action items
+    --assignee <name>       Filter by assignee
+    --since <date>          Filter by date
+    --format md|json|csv    Output format (default: md)
+    --output <file>         Write to file instead of stdout
+  export meetings [opts]  Export meeting summaries
+    --since <date>          Filter by date
+    --title <text>          Filter by title
+    --format md|json        Output format (default: md)
+    --output <file>         Write to file instead of stdout
+  export transcript <id>  Export meeting transcript
+    --format md|json|txt    Output format (default: md)
+    --output <file>         Write to file instead of stdout
 
 Global flags:
   --json                  Output as JSON
@@ -530,6 +647,26 @@ switch (command) {
     break;
   case "semantic":
     await cmdSemantic(positional, flags);
+    break;
+  case "digest":
+    cmdDigest(flags);
+    break;
+  case "export":
+    switch (subcommand) {
+      case "actions":
+        cmdExportActions(flags);
+        break;
+      case "meetings":
+        cmdExportMeetings(flags);
+        break;
+      case "transcript":
+        cmdExportTranscript(positional, flags);
+        break;
+      default:
+        console.error(`Unknown export command: ${subcommand || "(none)"}`);
+        console.error("Available: export actions, export meetings, export transcript <id>");
+        process.exit(1);
+    }
     break;
   default:
     console.error(`Unknown command: ${command}`);
